@@ -1,0 +1,122 @@
+{
+    // See https://go.microsoft.com/fwlink/?LinkId=733558
+    // for the documentation about the tasks.json format
+    "version": "2.0.0",
+    "presentation": {
+        "reveal": "silent",
+        "panel": "shared",
+    },
+    "problemMatcher": {
+        "owner": "odin",
+        "source": "Odin",
+        "fileLocation": "absolute",
+        "pattern": {
+          "regexp": "^(.*?)(\\((\\d+):(\\d+)\\))\\s+(Syntax\\s+)?(Error|Warning):\\s+(.+)$",
+          "file": 1,
+          "line": 3,
+          "column": 4,
+          "severity": 6,
+          "message": 7,
+        },
+    },
+    "tasks": [
+        {
+            "label": "odin: build debug",
+            "group": "build",
+            "dependsOn": "Create build directory - Debug",
+            "type": "process",
+            "command": "odin",
+            "args": [
+                "build",
+                "${workspaceFolder}",
+                "-debug",
+                "-vet",
+                "-strict-style",
+                "-show-timings",
+            ],
+            "options": {
+                "cwd": "${workspaceFolder}\\build\\debug"
+            },
+        },
+        {
+            "label": "odin: build release",
+            "group": "build",
+            "dependsOn": "Create build directory - Release",
+            "type": "process",
+            "command": "odin",
+            "args": [
+                "build",
+                "${workspaceFolder}",
+                "-vet",
+                "-strick-style",
+                "-show-timings",
+            ],
+            "options": {
+                "cwd": "${workspaceFolder}\\build\\release"
+            },
+        },
+        {
+            "label": "Create build directory - Debug",
+            "type": "shell",
+            "linux": {
+                "command": "mkdir -p ./build/debug"
+            },
+            "windows": {
+                "command": "cmd",
+                "args": ["/C", "if not exist .\\build\\debug mkdir .\\build\\debug"]
+            },
+        },
+        {
+            "label": "Create build directory - Release",
+            "type": "shell",
+            "linux": {
+                "command": "mkdir -p ./build/release"
+            },
+            "windows": {
+                "command": "cmd",
+                "args": ["/C", "if not exist .\\build\\release mkdir .\\build\\release"]
+            }
+        },
+        {
+            "label": "Check",
+            "group": "build",
+            "type": "process",
+            "command": "odin",
+            "args": [
+                "check",
+                "${workspaceFolder}",
+                "-vet",
+                "-strict-style"
+            ]
+        },
+        {
+            "label": "Clean",
+            "group": "build",
+            "type": "shell",
+            "linux":{
+                "command": "rm",
+                "args": [
+                    "-rf",
+                    "${workspaceFolder}/build",
+                ]
+            },
+            "windows": {
+                "command": "Remove-item",
+                "args": [
+                    "${workspaceFolder}\\build",
+                    "-recurse",
+                ]
+            }
+        },
+        {
+            "label": "Profile Memory",
+            "group": "test",
+            "type": "process",
+            "dependsOn": "Build - Debug",
+            "command": "MTuner.exe",
+            "args": [
+                "${workspaceFolder}/build/debug/${workspaceFolderBasename}.exe"
+            ]
+        },
+    ]
+}
