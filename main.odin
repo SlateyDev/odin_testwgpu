@@ -33,6 +33,28 @@ State :: struct {
 	pipeline:        wgpu.RenderPipeline,
 }
 
+Material :: struct {
+	pipeline: wgpu.RenderPipeline,
+}
+
+BUFFER_SIZE :: 16384
+
+Mesh :: struct {
+	material: Material,
+	vertexBuffer: wgpu.Buffer,
+	vertBuffer: [BUFFER_SIZE * 8]f32,
+}
+
+Vertex :: struct {
+	position: [3]f32,
+	uv:       [2]f32,
+	color:    [4]f32,
+	data:     [3]f32,
+}
+
+mesh : Mesh
+material : Material
+
 @(private="file")
 state: State
 
@@ -109,16 +131,35 @@ game :: proc() {
 		state.queue = wgpu.DeviceGetQueue(state.device)
 
 		shader :: `
+			struct VertexOutput {
+				@builtin(position) position_clip: vec4<f32>,
+				@location(0) position: vec3<f32>,
+				@location(1) uv: vec2<f32>,
+				@location(2) color: vec4<f32>,
+			};
+
 			@vertex
-			fn vs_main(@builtin(vertex_index) in_vertex_index: u32) -> @builtin(position) vec4<f32> {
-				let x = f32(i32(in_vertex_index) - 1);
-				let y = f32(i32(in_vertex_index & 1u) * 2 - 1);
-				return vec4<f32>(x, y, 0.0, 1.0);
+			fn vs_main(
+				@builtin(vertex_index) in_vertex_index: u32,
+				@location(0) pos: vec3<f32>,
+				@location(1) uv: vec2<f32>,
+				@location(2) color: vec4<f32>,
+			) -> VertexOutput {
+				var output: VertexOutput;
+				output.position_clip = vec4<f32>(pos, 1);
+				output.position = pos;
+				output.uv = uv;
+				output.color = color;
+				return output;
 			}
 
 			@fragment
-			fn fs_main() -> @location(0) vec4<f32> {
-				return vec4<f32>(1.0, 0.0, 0.0, 1.0);
+			fn fs_main(
+				@location(0) position: vec3<f32>,
+				@location(1) uv: vec2<f32>,
+				@location(2) color: vec4<f32>,
+			) -> @location(0) vec4<f32> {
+				return color;
 			}`
 
 		state.module = wgpu.DeviceCreateShaderModule(state.device, &{
@@ -128,12 +169,63 @@ game :: proc() {
 			},
 		})
 
+		mesh.vertexBuffer = wgpu.DeviceCreateBuffer(state.device, &wgpu.BufferDescriptor{
+			label = "Vertex Buffer",
+			usage = {.Vertex, .CopyDst},
+			size = size_of(mesh.vertBuffer),
+		})
+
+		copy(mesh.vertBuffer[(0 * size_of(Vertex) + offset_of(Vertex, position)) / size_of(f32):], []f32{-1,-1,0})
+		copy(mesh.vertBuffer[(0 * size_of(Vertex) + offset_of(Vertex, color)) / size_of(f32):], []f32{1,0,0,1})
+
+		copy(mesh.vertBuffer[(1 * size_of(Vertex) + offset_of(Vertex, position)) / size_of(f32):], []f32{0,1,0})
+		copy(mesh.vertBuffer[(1 * size_of(Vertex) + offset_of(Vertex, color)) / size_of(f32):], []f32{0,1,0,1})
+
+		copy(mesh.vertBuffer[(2 * size_of(Vertex) + offset_of(Vertex, position)) / size_of(f32):], []f32{1,-1,0})
+		copy(mesh.vertBuffer[(2 * size_of(Vertex) + offset_of(Vertex, color)) / size_of(f32):], []f32{0,0,1,1})
+
+		wgpu.QueueWriteBuffer(state.queue, mesh.vertexBuffer, 0, &mesh.vertBuffer, 3 * size_of(Vertex))
+
 		state.pipeline_layout = wgpu.DeviceCreatePipelineLayout(state.device, &{})
 		state.pipeline = wgpu.DeviceCreateRenderPipeline(state.device, &{
 			layout = state.pipeline_layout,
 			vertex = {
 				module     = state.module,
 				entryPoint = "vs_main",
+				bufferCount = 1,
+				buffers = raw_data(
+					[]wgpu.VertexBufferLayout {
+						{
+							arrayStride = size_of(Vertex),
+							stepMode = .Vertex,
+							attributeCount = 4,
+							attributes = raw_data(
+								[]wgpu.VertexAttribute {
+									{
+										format = .Float32x3,
+										offset = u64(offset_of(Vertex, position)),
+										shaderLocation = 0,
+									},
+									{
+										format = .Float32x2,
+										offset = u64(offset_of(Vertex, uv)),
+										shaderLocation = 1,
+									},
+									{
+										format = .Float32x4,
+										offset = u64(offset_of(Vertex, color)),
+										shaderLocation = 2,
+									},
+									{
+										format = .Float32x3,
+										offset = u64(offset_of(Vertex, data)),
+										shaderLocation = 3,
+									},
+								},
+							),
+						},
+					},
+				),
 			},
 			fragment = &{
 				module      = state.module,
@@ -141,12 +233,24 @@ game :: proc() {
 				targetCount = 1,
 				targets     = &wgpu.ColorTargetState{
 					format    = .BGRA8Unorm,
+					blend = &{
+						alpha = {
+							srcFactor = .SrcAlpha,
+							dstFactor = .OneMinusSrcAlpha,
+							operation = .Add,
+						},
+						color = {
+							srcFactor = .SrcAlpha,
+							dstFactor = .OneMinusSrcAlpha,
+							operation = .Add,
+						},
+					},
 					writeMask = wgpu.ColorWriteMaskFlags_All,
 				},
 			},
 			primitive = {
 				topology = .TriangleList,
-
+				cullMode = .None,
 			},
 			multisample = {
 				count = 1,
@@ -204,12 +308,13 @@ frame :: proc "c" (dt: f32) {
 				loadOp     = .Clear,
 				storeOp    = .Store,
 				depthSlice = wgpu.DEPTH_SLICE_UNDEFINED,
-				clearValue = { 0, 1, 0, 1 },
+				clearValue = { 0.2, 0.2, 0.2, 1 },
 			},
 		},
 	)
 
 	wgpu.RenderPassEncoderSetPipeline(render_pass_encoder, state.pipeline)
+	wgpu.RenderPassEncoderSetVertexBuffer(render_pass_encoder, 0, mesh.vertexBuffer, 0, 3 * size_of(Vertex))
 	wgpu.RenderPassEncoderDraw(render_pass_encoder, vertexCount=3, instanceCount=1, firstVertex=0, firstInstance=0)
 
 	wgpu.RenderPassEncoderEnd(render_pass_encoder)
@@ -223,6 +328,7 @@ frame :: proc "c" (dt: f32) {
 }
 
 finish :: proc() {
+	wgpu.BufferRelease(mesh.vertexBuffer)
 	wgpu.RenderPipelineRelease(state.pipeline)
 	wgpu.PipelineLayoutRelease(state.pipeline_layout)
 	wgpu.ShaderModuleRelease(state.module)
