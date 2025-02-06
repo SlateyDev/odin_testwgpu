@@ -34,25 +34,45 @@
                 "-strict-style",
                 "-show-timings",
             ],
+            "windows": {
+                "args": [
+                    "build",
+                    "${workspaceFolder}",
+                    "-vet",
+                    "-strict-style",
+                    "-show-timings",
+                    "-subsystem:windows",
+                ],
+            },
             "options": {
-                "cwd": "${workspaceFolder}\\build\\debug"
+                "cwd": "${workspaceFolder}\\build\\debug",
             },
         },
         {
             "label": "odin: build release",
             "group": "build",
             "dependsOn": "Create build directory - Release",
-            "type": "process",
+            "type": "shell",
             "command": "odin",
             "args": [
                 "build",
                 "${workspaceFolder}",
                 "-vet",
-                "-strick-style",
+                "-strict-style",
                 "-show-timings",
             ],
+            "windows": {
+                "args": [
+                    "build",
+                    "${workspaceFolder}",
+                    "-vet",
+                    "-strict-style",
+                    "-show-timings",
+                    "-subsystem:windows",
+                ],
+            },
             "options": {
-                "cwd": "${workspaceFolder}\\build\\release"
+                "cwd": "${workspaceFolder}\\build\\release",
             },
         },
         {

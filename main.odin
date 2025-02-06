@@ -57,8 +57,14 @@ main :: proc() {
 			}
 			mem.tracking_allocator_destroy(&track)
 		}
+	} else {
+		_ :: mem
 	}
 
+	game()
+}
+
+game :: proc() {
 	state.ctx = context
 
 	os_init(&state.os)
