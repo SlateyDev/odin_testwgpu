@@ -28,22 +28,35 @@ State :: struct {
 	device:          wgpu.Device,
 	config:          wgpu.SurfaceConfiguration,
 	queue:           wgpu.Queue,
-	module:          wgpu.ShaderModule,
-	pipeline_layout: wgpu.PipelineLayout,
-	pipeline:        wgpu.RenderPipeline,
+	// module:          wgpu.ShaderModule,
+	// pipeline_layout: wgpu.PipelineLayout,
+	// pipeline:        wgpu.RenderPipeline,
 }
 
-Material :: struct {
-	pipeline: wgpu.RenderPipeline,
-}
+shaders: map[string]wgpu.ShaderModule
+pipelineLayouts: map[string]wgpu.PipelineLayout
+pipelines: map[string]wgpu.RenderPipeline
+// subMaterials: map[string]SubMaterial
+// materials: map[string]Material
+meshes: map[string]Mesh
 
-BUFFER_SIZE :: 16384
+// SubMaterial :: struct {
+// 	pipelineResourceName: string,
+// 	shaderResourceName: string,
+// 	order: i32,
+// }
+
+// Material :: struct {
+// 	subMaterialResourceName: []string,
+// }
 
 Mesh :: struct {
-	material: Material,
+	materialResourceName: string,
 	vertexBuffer: wgpu.Buffer,
 	vertBuffer: [BUFFER_SIZE * 8]f32,
 }
+
+BUFFER_SIZE :: 16384
 
 Vertex :: struct {
 	position: [3]f32,
@@ -52,8 +65,7 @@ Vertex :: struct {
 	data:     [3]f32,
 }
 
-mesh : Mesh
-material : Material
+// mesh : Mesh
 
 @(private="file")
 state: State
@@ -130,51 +142,35 @@ game :: proc() {
 
 		state.queue = wgpu.DeviceGetQueue(state.device)
 
-		shader :: `
-			struct VertexOutput {
-				@builtin(position) position_clip: vec4<f32>,
-				@location(0) position: vec3<f32>,
-				@location(1) uv: vec2<f32>,
-				@location(2) color: vec4<f32>,
-			};
+		shader :: cstring(#load("shader.wsgl"))
 
-			@vertex
-			fn vs_main(
-				@builtin(vertex_index) in_vertex_index: u32,
-				@location(0) pos: vec3<f32>,
-				@location(1) uv: vec2<f32>,
-				@location(2) color: vec4<f32>,
-			) -> VertexOutput {
-				var output: VertexOutput;
-				output.position_clip = vec4<f32>(pos, 1);
-				output.position = pos;
-				output.uv = uv;
-				output.color = color;
-				return output;
-			}
+		// state.module = wgpu.DeviceCreateShaderModule(state.device, &{
+		// 	nextInChain = &wgpu.ShaderModuleWGSLDescriptor{
+		// 		sType = .ShaderModuleWGSLDescriptor,
+		// 		code  = shader,
+		// 	},
+		// })
 
-			@fragment
-			fn fs_main(
-				@location(0) position: vec3<f32>,
-				@location(1) uv: vec2<f32>,
-				@location(2) color: vec4<f32>,
-			) -> @location(0) vec4<f32> {
-				return color;
-			}`
-
-		state.module = wgpu.DeviceCreateShaderModule(state.device, &{
+		shaders["testShader"] = wgpu.DeviceCreateShaderModule(state.device, &{
 			nextInChain = &wgpu.ShaderModuleWGSLDescriptor{
 				sType = .ShaderModuleWGSLDescriptor,
 				code  = shader,
 			},
 		})
 
-		mesh.vertexBuffer = wgpu.DeviceCreateBuffer(state.device, &wgpu.BufferDescriptor{
+		meshes["test"] = Mesh{vertexBuffer = wgpu.DeviceCreateBuffer(state.device, &wgpu.BufferDescriptor{
 			label = "Vertex Buffer",
 			usage = {.Vertex, .CopyDst},
-			size = size_of(mesh.vertBuffer),
-		})
+			size = BUFFER_SIZE * 8 * size_of(f32),
+		})}
 
+		// mesh.vertexBuffer = wgpu.DeviceCreateBuffer(state.device, &wgpu.BufferDescriptor{
+		// 	label = "Vertex Buffer",
+		// 	usage = {.Vertex, .CopyDst},
+		// 	size = size_of(mesh.vertBuffer),
+		// })
+
+		mesh := &meshes["test"]
 		copy(mesh.vertBuffer[(0 * size_of(Vertex) + offset_of(Vertex, position)) / size_of(f32):], []f32{-1,-1,0})
 		copy(mesh.vertBuffer[(0 * size_of(Vertex) + offset_of(Vertex, color)) / size_of(f32):], []f32{1,0,0,1})
 
@@ -186,11 +182,12 @@ game :: proc() {
 
 		wgpu.QueueWriteBuffer(state.queue, mesh.vertexBuffer, 0, &mesh.vertBuffer, 3 * size_of(Vertex))
 
-		state.pipeline_layout = wgpu.DeviceCreatePipelineLayout(state.device, &{})
-		state.pipeline = wgpu.DeviceCreateRenderPipeline(state.device, &{
-			layout = state.pipeline_layout,
+		pipelineLayouts["default"] = wgpu.DeviceCreatePipelineLayout(state.device, &{})
+
+		pipelines["test"] = wgpu.DeviceCreateRenderPipeline(state.device, &{
+			layout = pipelineLayouts["default"],
 			vertex = {
-				module     = state.module,
+				module     = shaders["testShader"],
 				entryPoint = "vs_main",
 				bufferCount = 1,
 				buffers = raw_data(
@@ -228,7 +225,7 @@ game :: proc() {
 				),
 			},
 			fragment = &{
-				module      = state.module,
+				module      = shaders["testShader"],
 				entryPoint  = "fs_main",
 				targetCount = 1,
 				targets     = &wgpu.ColorTargetState{
@@ -313,7 +310,8 @@ frame :: proc "c" (dt: f32) {
 		},
 	)
 
-	wgpu.RenderPassEncoderSetPipeline(render_pass_encoder, state.pipeline)
+	mesh := &meshes["test"]
+	wgpu.RenderPassEncoderSetPipeline(render_pass_encoder, pipelines["test"])
 	wgpu.RenderPassEncoderSetVertexBuffer(render_pass_encoder, 0, mesh.vertexBuffer, 0, 3 * size_of(Vertex))
 	wgpu.RenderPassEncoderDraw(render_pass_encoder, vertexCount=3, instanceCount=1, firstVertex=0, firstInstance=0)
 
@@ -328,10 +326,27 @@ frame :: proc "c" (dt: f32) {
 }
 
 finish :: proc() {
-	wgpu.BufferRelease(mesh.vertexBuffer)
-	wgpu.RenderPipelineRelease(state.pipeline)
-	wgpu.PipelineLayoutRelease(state.pipeline_layout)
-	wgpu.ShaderModuleRelease(state.module)
+	for key in meshes {
+		mesh := &meshes[key]
+		wgpu.BufferRelease(mesh.vertexBuffer)
+	}
+	delete_map(meshes)
+	// wgpu.BufferRelease(mesh.vertexBuffer)
+	for _, pipeline in pipelines {
+		wgpu.RenderPipelineRelease(pipeline)
+	}
+	delete_map(pipelines)
+	// wgpu.RenderPipelineRelease(state.pipeline)
+	for _, pipelineLayout in pipelineLayouts {
+		wgpu.PipelineLayoutRelease(pipelineLayout)
+	}
+	delete_map(pipelineLayouts)
+	// wgpu.PipelineLayoutRelease(state.pipeline_layout)
+	for _, shader in shaders {
+		wgpu.ShaderModuleRelease(shader)
+	}
+	delete_map(shaders)
+	// wgpu.ShaderModuleRelease(state.module)
 	wgpu.QueueRelease(state.queue)
 	wgpu.DeviceRelease(state.device)
 	wgpu.AdapterRelease(state.adapter)
