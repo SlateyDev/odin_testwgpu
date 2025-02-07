@@ -142,7 +142,7 @@ game :: proc() {
 
 		state.queue = wgpu.DeviceGetQueue(state.device)
 
-		shader :: cstring(#load("shader.wsgl"))
+		shader :: cstring(#load("shader.wgsl"))
 
 		// state.module = wgpu.DeviceCreateShaderModule(state.device, &{
 		// 	nextInChain = &wgpu.ShaderModuleWGSLDescriptor{
