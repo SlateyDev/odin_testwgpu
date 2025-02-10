@@ -5,6 +5,7 @@ import "core:fmt"
 import "core:math"
 import la "core:math/linalg"
 import "core:mem"
+import "core:time"
 import "vendor:wgpu"
 
 Vector2 :: distinct [2]f32
@@ -74,6 +75,8 @@ viewMatrix := la.MATRIX4F32_IDENTITY
 projectionMatrix: la.Matrix4f32
 
 // mesh : Mesh
+
+start_time := time.now()
 
 @(private = "file")
 state: State
@@ -445,7 +448,11 @@ frame :: proc "c" (dt: f32) {
 	frame := wgpu.TextureCreateView(surface_texture.texture, nil)
 	defer wgpu.TextureViewRelease(frame)
 
-	transform := OPEN_GL_TO_WGPU_MATRIX * projectionMatrix * viewMatrix
+	now := f32(time.duration_seconds(time.since(start_time)))
+	rotation_axis := la.Vector3f32{0, 1, 0}
+	rotation_matrix := la.matrix4_rotate(math.sin(now) * 1.2, rotation_axis)
+
+	transform := OPEN_GL_TO_WGPU_MATRIX * projectionMatrix * viewMatrix * rotation_matrix
 	wgpu.QueueWriteBuffer(state.queue, state.uniform_buffer, 0, &transform, size_of(transform))
 
 	command_encoder := wgpu.DeviceCreateCommandEncoder(state.device, nil)
