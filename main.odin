@@ -166,13 +166,13 @@ game :: proc() {
 		projectionMatrix = la.matrix4_perspective(
 			2 * math.PI / 5,
 			f32(width) / f32(height),
-			1,
+			1.0,
 			100.0,
 		)
 		viewMatrix = la.matrix4_look_at(
-			la.Vector3f32{0, 0, -4},
-			la.Vector3f32{0, 0, 0},
-			la.VECTOR3F32_Y_AXIS,
+			la.Vector3f32{0.0, 0.0, 4.0},
+			la.Vector3f32{0.0, 0.0, 0.0},
+			la.Vector3f32{0.0, 1.0, 0.0},
 		)
 
 		state.queue = wgpu.DeviceGetQueue(state.device)
@@ -318,7 +318,10 @@ game :: proc() {
 		)
 		defer wgpu.BindGroupRelease(state.uniform_bind_group)
 
-		pipelineLayouts["default"] = wgpu.DeviceCreatePipelineLayout(state.device, &{})
+		pipelineLayouts["default"] = wgpu.DeviceCreatePipelineLayout(state.device, &{
+			bindGroupLayoutCount = 1,
+			bindGroupLayouts = &state.uniform_bind_group_layout,
+		})
 
 		pipelines["test"] = wgpu.DeviceCreateRenderPipeline(
 			state.device,
@@ -405,11 +408,18 @@ resize :: proc "c" () {
 	projectionMatrix = la.matrix4_perspective(
 		2 * math.PI / 5,
 		f32(state.config.width) / f32(state.config.height),
-		1,
+		1.0,
 		100.0,
 	)
 
 	wgpu.SurfaceConfigure(state.surface, &state.config)
+}
+
+OPEN_GL_TO_WGPU_MATRIX :: la.Matrix4f32 {
+    1.0, 0.0, 0.0, 0.0,
+    0.0, 1.0, 0.0, 0.0,
+    0.0, 0.0, 0.5, 0.5,
+    0.0, 0.0, 0.0, 1.0,
 }
 
 frame :: proc "c" (dt: f32) {
@@ -435,6 +445,9 @@ frame :: proc "c" (dt: f32) {
 	frame := wgpu.TextureCreateView(surface_texture.texture, nil)
 	defer wgpu.TextureViewRelease(frame)
 
+	transform := OPEN_GL_TO_WGPU_MATRIX * projectionMatrix * viewMatrix
+	wgpu.QueueWriteBuffer(state.queue, state.uniform_buffer, 0, &transform, size_of(transform))
+
 	command_encoder := wgpu.DeviceCreateCommandEncoder(state.device, nil)
 	defer wgpu.CommandEncoderRelease(command_encoder)
 
@@ -454,6 +467,7 @@ frame :: proc "c" (dt: f32) {
 
 	mesh := &meshes["test"]
 	wgpu.RenderPassEncoderSetPipeline(render_pass_encoder, pipelines["test"])
+	wgpu.RenderPassEncoderSetBindGroup(render_pass_encoder, 0, state.uniform_bind_group)
 	wgpu.RenderPassEncoderSetVertexBuffer(
 		render_pass_encoder,
 		0,
