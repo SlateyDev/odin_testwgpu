@@ -2,6 +2,8 @@ package test
 
 import "base:runtime"
 import "core:fmt"
+import "core:math"
+import la "core:math/linalg"
 import "core:mem"
 import "vendor:wgpu"
 
@@ -10,27 +12,29 @@ Vector3 :: distinct [3]f32
 Quaternion :: distinct quaternion128
 
 Node2D :: struct {
-    position : Vector2,
-    orientation : Quaternion,
+	position:    Vector2,
+	orientation: Quaternion,
 }
 Node3D :: struct {
-    position : Vector3,
-    orientation : f32,
+	position:    Vector3,
+	orientation: f32,
 }
 
 State :: struct {
-	ctx: runtime.Context,
-	os:  OS,
-
-	instance:        wgpu.Instance,
-	surface:         wgpu.Surface,
-	adapter:         wgpu.Adapter,
-	device:          wgpu.Device,
-	config:          wgpu.SurfaceConfiguration,
-	queue:           wgpu.Queue,
+	ctx:                       runtime.Context,
+	os:                        OS,
+	instance:                  wgpu.Instance,
+	surface:                   wgpu.Surface,
+	adapter:                   wgpu.Adapter,
+	device:                    wgpu.Device,
+	config:                    wgpu.SurfaceConfiguration,
+	queue:                     wgpu.Queue,
 	// module:          wgpu.ShaderModule,
 	// pipeline_layout: wgpu.PipelineLayout,
 	// pipeline:        wgpu.RenderPipeline,
+	uniform_buffer:            wgpu.Buffer,
+	uniform_bind_group_layout: wgpu.BindGroupLayout,
+	uniform_bind_group:        wgpu.BindGroup,
 }
 
 shaders: map[string]wgpu.ShaderModule
@@ -52,8 +56,8 @@ meshes: map[string]Mesh
 
 Mesh :: struct {
 	materialResourceName: string,
-	vertexBuffer: wgpu.Buffer,
-	vertBuffer: [BUFFER_SIZE * 8]f32,
+	vertexBuffer:         wgpu.Buffer,
+	vertBuffer:           [BUFFER_SIZE * 8]f32,
 }
 
 BUFFER_SIZE :: 16384
@@ -65,13 +69,17 @@ Vertex :: struct {
 	data:     [3]f32,
 }
 
+modelMatrix := la.MATRIX4F32_IDENTITY
+viewMatrix := la.MATRIX4F32_IDENTITY
+projectionMatrix: la.Matrix4f32
+
 // mesh : Mesh
 
-@(private="file")
+@(private = "file")
 state: State
 
 main :: proc() {
-    when ODIN_DEBUG {
+	when ODIN_DEBUG {
 		track: mem.Tracking_Allocator
 		mem.tracking_allocator_init(&track, context.allocator)
 		context.allocator = mem.tracking_allocator(&track)
@@ -109,9 +117,19 @@ game :: proc() {
 	}
 	state.surface = os_get_surface(&state.os, state.instance)
 
-	wgpu.InstanceRequestAdapter(state.instance, &{ compatibleSurface = state.surface }, on_adapter, nil)
+	wgpu.InstanceRequestAdapter(
+		state.instance,
+		&{compatibleSurface = state.surface},
+		on_adapter,
+		nil,
+	)
 
-	on_adapter :: proc "c" (status: wgpu.RequestAdapterStatus, adapter: wgpu.Adapter, message: cstring, userdata: rawptr) {
+	on_adapter :: proc "c" (
+		status: wgpu.RequestAdapterStatus,
+		adapter: wgpu.Adapter,
+		message: cstring,
+		userdata: rawptr,
+	) {
 		context = state.ctx
 		if status != .Success || adapter == nil {
 			fmt.panicf("request adapter failure: [%v] %s", status, message)
@@ -120,18 +138,23 @@ game :: proc() {
 		wgpu.AdapterRequestDevice(adapter, nil, on_device)
 	}
 
-	on_device :: proc "c" (status: wgpu.RequestDeviceStatus, device: wgpu.Device, message: cstring, userdata: rawptr) {
+	on_device :: proc "c" (
+		status: wgpu.RequestDeviceStatus,
+		device: wgpu.Device,
+		message: cstring,
+		userdata: rawptr,
+	) {
 		context = state.ctx
 		if status != .Success || device == nil {
 			fmt.panicf("request device failure: [%v] %s", status, message)
 		}
-		state.device = device 
+		state.device = device
 
 		width, height := os_get_render_bounds(&state.os)
 
 		state.config = wgpu.SurfaceConfiguration {
 			device      = state.device,
-			usage       = { .RenderAttachment },
+			usage       = {.RenderAttachment},
 			format      = .BGRA8Unorm,
 			width       = width,
 			height      = height,
@@ -139,6 +162,18 @@ game :: proc() {
 			alphaMode   = .Opaque,
 		}
 		wgpu.SurfaceConfigure(state.surface, &state.config)
+
+		projectionMatrix = la.matrix4_perspective(
+			2 * math.PI / 5,
+			f32(width) / f32(height),
+			1,
+			100.0,
+		)
+		viewMatrix = la.matrix4_look_at(
+			la.Vector3f32{0, 0, -4},
+			la.Vector3f32{0, 0, 0},
+			la.VECTOR3F32_Y_AXIS,
+		)
 
 		state.queue = wgpu.DeviceGetQueue(state.device)
 
@@ -151,18 +186,26 @@ game :: proc() {
 		// 	},
 		// })
 
-		shaders["testShader"] = wgpu.DeviceCreateShaderModule(state.device, &{
-			nextInChain = &wgpu.ShaderModuleWGSLDescriptor{
-				sType = .ShaderModuleWGSLDescriptor,
-				code  = shader,
+		shaders["testShader"] = wgpu.DeviceCreateShaderModule(
+			state.device,
+			&{
+				nextInChain = &wgpu.ShaderModuleWGSLDescriptor {
+					sType = .ShaderModuleWGSLDescriptor,
+					code = shader,
+				},
 			},
-		})
+		)
 
-		meshes["test"] = Mesh{vertexBuffer = wgpu.DeviceCreateBuffer(state.device, &wgpu.BufferDescriptor{
-			label = "Vertex Buffer",
-			usage = {.Vertex, .CopyDst},
-			size = BUFFER_SIZE * 8 * size_of(f32),
-		})}
+		meshes["test"] = Mesh {
+			vertexBuffer = wgpu.DeviceCreateBuffer(
+				state.device,
+				&wgpu.BufferDescriptor {
+					label = "Vertex Buffer",
+					usage = {.Vertex, .CopyDst},
+					size = BUFFER_SIZE * 8 * size_of(f32),
+				},
+			),
+		}
 
 		// mesh.vertexBuffer = wgpu.DeviceCreateBuffer(state.device, &wgpu.BufferDescriptor{
 		// 	label = "Vertex Buffer",
@@ -171,103 +214,201 @@ game :: proc() {
 		// })
 
 		mesh := &meshes["test"]
-		copy(mesh.vertBuffer[(0 * size_of(Vertex) + offset_of(Vertex, position)) / size_of(f32):], []f32{-1,-1,0})
-		copy(mesh.vertBuffer[(0 * size_of(Vertex) + offset_of(Vertex, color)) / size_of(f32):], []f32{1,0,0,1})
+		copy(
+			mesh.vertBuffer[(0 * size_of(Vertex) + offset_of(Vertex, position)) / size_of(f32):],
+			[]f32{-1, -1, 0},
+		)
+		copy(
+			mesh.vertBuffer[(0 * size_of(Vertex) + offset_of(Vertex, color)) / size_of(f32):],
+			[]f32{1, 0, 0, 1},
+		)
 
-		copy(mesh.vertBuffer[(1 * size_of(Vertex) + offset_of(Vertex, position)) / size_of(f32):], []f32{0,1,0})
-		copy(mesh.vertBuffer[(1 * size_of(Vertex) + offset_of(Vertex, color)) / size_of(f32):], []f32{0,1,0,1})
+		copy(
+			mesh.vertBuffer[(1 * size_of(Vertex) + offset_of(Vertex, position)) / size_of(f32):],
+			[]f32{0, 1, 0},
+		)
+		copy(
+			mesh.vertBuffer[(1 * size_of(Vertex) + offset_of(Vertex, color)) / size_of(f32):],
+			[]f32{0, 1, 0, 1},
+		)
 
-		copy(mesh.vertBuffer[(2 * size_of(Vertex) + offset_of(Vertex, position)) / size_of(f32):], []f32{1,-1,0})
-		copy(mesh.vertBuffer[(2 * size_of(Vertex) + offset_of(Vertex, color)) / size_of(f32):], []f32{0,0,1,1})
+		copy(
+			mesh.vertBuffer[(2 * size_of(Vertex) + offset_of(Vertex, position)) / size_of(f32):],
+			[]f32{1, -1, 0},
+		)
+		copy(
+			mesh.vertBuffer[(2 * size_of(Vertex) + offset_of(Vertex, color)) / size_of(f32):],
+			[]f32{0, 0, 1, 1},
+		)
 
-		wgpu.QueueWriteBuffer(state.queue, mesh.vertexBuffer, 0, &mesh.vertBuffer, 3 * size_of(Vertex))
+		wgpu.QueueWriteBuffer(
+			state.queue,
+			mesh.vertexBuffer,
+			0,
+			&mesh.vertBuffer,
+			3 * size_of(Vertex),
+		)
+
+		state.uniform_buffer = wgpu.DeviceCreateBuffer(
+			state.device,
+			&wgpu.BufferDescriptor{
+				label = "Uniform Buffer",
+				usage = {.Uniform, .CopyDst},
+				size = size_of(matrix[4, 4]f32),
+			},
+		)
+		defer wgpu.BufferRelease(state.uniform_buffer)
+
+		state.uniform_bind_group_layout = wgpu.DeviceCreateBindGroupLayout(
+			state.device,
+			&wgpu.BindGroupLayoutDescriptor {
+				label = "Bind Group Layout",
+				entryCount = 1,
+				entries = raw_data([]wgpu.BindGroupLayoutEntry{
+					{
+						binding = 0,
+						visibility = {.Vertex},
+						buffer = {
+							type = .Uniform,
+							minBindingSize = size_of(matrix[4, 4]f32),
+						},
+					},
+					// {
+					// 	binding = 1,
+					// 	visibility = {.Vertex},
+					// 	buffer = {
+					// 		type = .Uniform,
+					// 	},
+					// },
+					// {
+					// 	binding = 2,
+					// 	visibility = {.Vertex},
+					// 	buffer = {
+					// 		type = .Uniform,
+					// 	},
+					// },
+				}),
+			},
+		)
+		defer wgpu.BindGroupLayoutRelease(state.uniform_bind_group_layout)
+
+		state.uniform_bind_group = wgpu.DeviceCreateBindGroup(
+			state.device,
+			&wgpu.BindGroupDescriptor {
+				layout = state.uniform_bind_group_layout,
+				entryCount = 1,
+				entries = raw_data([]wgpu.BindGroupEntry{
+					{
+						binding = 0,
+						buffer = state.uniform_buffer,
+						size = size_of(matrix[4, 4]f32),
+					},
+					// {
+					// 	binding = 1,
+					// 	buffer = state.uniform_buffer,
+					// 	size = size_of(matrix[4, 4]f32),
+					// },
+					// {
+					// 	binding = 2,
+					// 	buffer = state.uniform_buffer,
+					// 	size = size_of(matrix[4, 4]f32),
+					// },
+				}),
+			},
+		)
+		defer wgpu.BindGroupRelease(state.uniform_bind_group)
 
 		pipelineLayouts["default"] = wgpu.DeviceCreatePipelineLayout(state.device, &{})
 
-		pipelines["test"] = wgpu.DeviceCreateRenderPipeline(state.device, &{
-			layout = pipelineLayouts["default"],
-			vertex = {
-				module     = shaders["testShader"],
-				entryPoint = "vs_main",
-				bufferCount = 1,
-				buffers = raw_data(
-					[]wgpu.VertexBufferLayout {
-						{
-							arrayStride = size_of(Vertex),
-							stepMode = .Vertex,
-							attributeCount = 4,
-							attributes = raw_data(
-								[]wgpu.VertexAttribute {
-									{
-										format = .Float32x3,
-										offset = u64(offset_of(Vertex, position)),
-										shaderLocation = 0,
+		pipelines["test"] = wgpu.DeviceCreateRenderPipeline(
+			state.device,
+			&{
+				layout = pipelineLayouts["default"],
+				vertex = {
+					module = shaders["testShader"],
+					entryPoint = "vs_main",
+					bufferCount = 1,
+					buffers = raw_data(
+						[]wgpu.VertexBufferLayout {
+							{
+								arrayStride = size_of(Vertex),
+								stepMode = .Vertex,
+								attributeCount = 4,
+								attributes = raw_data(
+									[]wgpu.VertexAttribute {
+										{
+											format = .Float32x3,
+											offset = u64(offset_of(Vertex, position)),
+											shaderLocation = 0,
+										},
+										{
+											format = .Float32x2,
+											offset = u64(offset_of(Vertex, uv)),
+											shaderLocation = 1,
+										},
+										{
+											format = .Float32x4,
+											offset = u64(offset_of(Vertex, color)),
+											shaderLocation = 2,
+										},
+										{
+											format = .Float32x3,
+											offset = u64(offset_of(Vertex, data)),
+											shaderLocation = 3,
+										},
 									},
-									{
-										format = .Float32x2,
-										offset = u64(offset_of(Vertex, uv)),
-										shaderLocation = 1,
-									},
-									{
-										format = .Float32x4,
-										offset = u64(offset_of(Vertex, color)),
-										shaderLocation = 2,
-									},
-									{
-										format = .Float32x3,
-										offset = u64(offset_of(Vertex, data)),
-										shaderLocation = 3,
-									},
-								},
-							),
+								),
+							},
 						},
-					},
-				),
-			},
-			fragment = &{
-				module      = shaders["testShader"],
-				entryPoint  = "fs_main",
-				targetCount = 1,
-				targets     = &wgpu.ColorTargetState{
-					format    = .BGRA8Unorm,
-					blend = &{
-						alpha = {
-							srcFactor = .SrcAlpha,
-							dstFactor = .OneMinusSrcAlpha,
-							operation = .Add,
-						},
-						color = {
-							srcFactor = .SrcAlpha,
-							dstFactor = .OneMinusSrcAlpha,
-							operation = .Add,
-						},
-					},
-					writeMask = wgpu.ColorWriteMaskFlags_All,
+					),
 				},
+				fragment = &{
+					module = shaders["testShader"],
+					entryPoint = "fs_main",
+					targetCount = 1,
+					targets = &wgpu.ColorTargetState {
+						format = .BGRA8Unorm,
+						blend = &{
+							alpha = {
+								srcFactor = .SrcAlpha,
+								dstFactor = .OneMinusSrcAlpha,
+								operation = .Add,
+							},
+							color = {
+								srcFactor = .SrcAlpha,
+								dstFactor = .OneMinusSrcAlpha,
+								operation = .Add,
+							},
+						},
+						writeMask = wgpu.ColorWriteMaskFlags_All,
+					},
+				},
+				primitive = {topology = .TriangleList, cullMode = .None},
+				multisample = {count = 1, mask = 0xFFFFFFFF},
 			},
-			primitive = {
-				topology = .TriangleList,
-				cullMode = .None,
-			},
-			multisample = {
-				count = 1,
-				mask  = 0xFFFFFFFF,
-			},
-		})
+		)
 
 		os_run(&state.os)
 	}
 
-    init_game_state()
-    defer destroy_game_state()
+	init_game_state()
+	defer destroy_game_state()
 
-    display_game_state()
+	display_game_state()
 }
 
 resize :: proc "c" () {
 	context = state.ctx
-	
+
 	state.config.width, state.config.height = os_get_render_bounds(&state.os)
+
+	projectionMatrix = la.matrix4_perspective(
+		2 * math.PI / 5,
+		f32(state.config.width) / f32(state.config.height),
+		1,
+		100.0,
+	)
+
 	wgpu.SurfaceConfigure(state.surface, &state.config)
 }
 
@@ -277,7 +418,7 @@ frame :: proc "c" (dt: f32) {
 	surface_texture := wgpu.SurfaceGetCurrentTexture(state.surface)
 	switch surface_texture.status {
 	case .Success:
-		// All good, could check for `surface_texture.suboptimal` here.
+	// All good, could check for `surface_texture.suboptimal` here.
 	case .Timeout, .Outdated, .Lost:
 		// Skip this frame, and re-configure surface.
 		if surface_texture.texture != nil {
@@ -298,22 +439,35 @@ frame :: proc "c" (dt: f32) {
 	defer wgpu.CommandEncoderRelease(command_encoder)
 
 	render_pass_encoder := wgpu.CommandEncoderBeginRenderPass(
-		command_encoder, &{
+		command_encoder,
+		&{
 			colorAttachmentCount = 1,
-			colorAttachments     = &wgpu.RenderPassColorAttachment{
-				view       = frame,
-				loadOp     = .Clear,
-				storeOp    = .Store,
+			colorAttachments = &wgpu.RenderPassColorAttachment {
+				view = frame,
+				loadOp = .Clear,
+				storeOp = .Store,
 				depthSlice = wgpu.DEPTH_SLICE_UNDEFINED,
-				clearValue = { 0.2, 0.2, 0.2, 1 },
+				clearValue = {0.2, 0.2, 0.2, 1},
 			},
 		},
 	)
 
 	mesh := &meshes["test"]
 	wgpu.RenderPassEncoderSetPipeline(render_pass_encoder, pipelines["test"])
-	wgpu.RenderPassEncoderSetVertexBuffer(render_pass_encoder, 0, mesh.vertexBuffer, 0, 3 * size_of(Vertex))
-	wgpu.RenderPassEncoderDraw(render_pass_encoder, vertexCount=3, instanceCount=1, firstVertex=0, firstInstance=0)
+	wgpu.RenderPassEncoderSetVertexBuffer(
+		render_pass_encoder,
+		0,
+		mesh.vertexBuffer,
+		0,
+		3 * size_of(Vertex),
+	)
+	wgpu.RenderPassEncoderDraw(
+		render_pass_encoder,
+		vertexCount = 3,
+		instanceCount = 1,
+		firstVertex = 0,
+		firstInstance = 0,
+	)
 
 	wgpu.RenderPassEncoderEnd(render_pass_encoder)
 	wgpu.RenderPassEncoderRelease(render_pass_encoder)
@@ -321,7 +475,7 @@ frame :: proc "c" (dt: f32) {
 	command_buffer := wgpu.CommandEncoderFinish(command_encoder, nil)
 	defer wgpu.CommandBufferRelease(command_buffer)
 
-	wgpu.QueueSubmit(state.queue, { command_buffer })
+	wgpu.QueueSubmit(state.queue, {command_buffer})
 	wgpu.SurfacePresent(state.surface)
 }
 
