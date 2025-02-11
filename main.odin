@@ -8,17 +8,10 @@ import "core:mem"
 import "core:time"
 import "vendor:wgpu"
 
-Vector2 :: distinct [2]f32
-Vector3 :: distinct [3]f32
-Quaternion :: distinct quaternion128
-
-Node2D :: struct {
-	position:    Vector2,
-	orientation: Quaternion,
-}
 Node3D :: struct {
-	position:    Vector3,
-	orientation: f32,
+	translation: la.Vector3f32,
+	rotation:    la.Quaternionf32,
+	scale:       la.Vector3f32,
 }
 
 State :: struct {
@@ -53,6 +46,12 @@ Vertex :: struct {
 	uv:       [2]f32,
 	color:    [4]f32,
 	data:     [3]f32,
+}
+
+gameObject1 := Node3D {
+	translation = {0, 0, 0},
+	rotation    = la.quaternion_from_euler_angles_f32(0, 0, 0, la.Euler_Angle_Order.ZYX),
+	scale       = {1, 1, 1},
 }
 
 modelMatrix := la.MATRIX4F32_IDENTITY
@@ -343,7 +342,7 @@ game :: proc() {
 
 		init_game_state()
 		defer destroy_game_state()
-	
+
 		display_game_state()
 
 		os_run(&state.os)
@@ -396,13 +395,6 @@ frame :: proc "c" (dt: f32) {
 	frame := wgpu.TextureCreateView(surface_texture.texture, nil)
 	defer wgpu.TextureViewRelease(frame)
 
-	now := f32(time.duration_seconds(time.since(start_time)))
-	rotation_axis := la.Vector3f32{0, 1, 0}
-	rotation_matrix := la.matrix4_rotate(math.sin(now) * 1.2, rotation_axis)
-
-	transform := OPEN_GL_TO_WGPU_MATRIX * projectionMatrix * viewMatrix * rotation_matrix
-	wgpu.QueueWriteBuffer(state.queue, state.uniform_buffer, 0, &transform, size_of(transform))
-
 	command_encoder := wgpu.DeviceCreateCommandEncoder(state.device, nil)
 	defer wgpu.CommandEncoderRelease(command_encoder)
 
@@ -430,6 +422,23 @@ frame :: proc "c" (dt: f32) {
 		0,
 		3 * size_of(Vertex),
 	)
+
+	now := f32(time.duration_seconds(time.since(start_time)))
+	gameObject1.rotation = la.quaternion_from_euler_angles_f32(
+		0,
+		math.sin(now) * 1.2,
+		0,
+		la.Euler_Angle_Order.XYZ,
+	)
+	modelMatrix = la.matrix4_from_trs_f32(
+		gameObject1.translation,
+		gameObject1.rotation,
+		gameObject1.scale,
+	)
+
+	transform := OPEN_GL_TO_WGPU_MATRIX * projectionMatrix * viewMatrix * modelMatrix
+	wgpu.QueueWriteBuffer(state.queue, state.uniform_buffer, 0, &transform, size_of(transform))
+
 	wgpu.RenderPassEncoderDraw(
 		render_pass_encoder,
 		vertexCount = 3,
@@ -437,6 +446,37 @@ frame :: proc "c" (dt: f32) {
 		firstVertex = 0,
 		firstInstance = 0,
 	)
+
+	wgpu.RenderPassEncoderSetVertexBuffer(
+		render_pass_encoder,
+		0,
+		mesh.vertexBuffer,
+		0,
+		3 * size_of(Vertex),
+	)
+
+	// gameObject1.rotation = la.quaternion_from_euler_angles_f32(
+	// 	math.sin(now) * 1.2,
+	// 	0,
+	// 	0,
+	// 	la.Euler_Angle_Order.XYZ,
+	// )
+	// modelMatrix = la.matrix4_from_trs_f32(
+	// 	gameObject1.translation,
+	// 	gameObject1.rotation,
+	// 	gameObject1.scale,
+	// )
+
+	// transform = OPEN_GL_TO_WGPU_MATRIX * projectionMatrix * viewMatrix * modelMatrix
+	// wgpu.QueueWriteBuffer(state.queue, state.uniform_buffer, 0, &transform, size_of(transform))
+
+	// wgpu.RenderPassEncoderDraw(
+	// 	render_pass_encoder,
+	// 	vertexCount = 3,
+	// 	instanceCount = 1,
+	// 	firstVertex = 0,
+	// 	firstInstance = 0,
+	// )
 
 	wgpu.RenderPassEncoderEnd(render_pass_encoder)
 	wgpu.RenderPassEncoderRelease(render_pass_encoder)
