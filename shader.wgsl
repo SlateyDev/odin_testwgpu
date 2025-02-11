@@ -1,7 +1,4 @@
-@group(0) @binding(0)
-var<uniform> model_view: mat4x4<f32>;
-@group(0) @binding(1)
-var<uniform> projection: mat4x4<f32>;
+@group(0) @binding(0) var<uniform> mvp: mat4x4<f32>;
 
 struct VertexOutput {
     @builtin(position) position: vec4<f32>,
@@ -17,7 +14,7 @@ fn vs_main(
     @location(2) color: vec4<f32>,
 ) -> VertexOutput {
     var output: VertexOutput;
-    output.position = model_view * pos;
+    output.position = mvp * pos;
     output.uv = uv;
     output.color = color;
     return output;

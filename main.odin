@@ -30,9 +30,6 @@ State :: struct {
 	device:                    wgpu.Device,
 	config:                    wgpu.SurfaceConfiguration,
 	queue:                     wgpu.Queue,
-	// module:          wgpu.ShaderModule,
-	// pipeline_layout: wgpu.PipelineLayout,
-	// pipeline:        wgpu.RenderPipeline,
 	uniform_buffer:            wgpu.Buffer,
 	uniform_bind_group_layout: wgpu.BindGroupLayout,
 	uniform_bind_group:        wgpu.BindGroup,
@@ -41,19 +38,7 @@ State :: struct {
 shaders: map[string]wgpu.ShaderModule
 pipelineLayouts: map[string]wgpu.PipelineLayout
 pipelines: map[string]wgpu.RenderPipeline
-// subMaterials: map[string]SubMaterial
-// materials: map[string]Material
 meshes: map[string]Mesh
-
-// SubMaterial :: struct {
-// 	pipelineResourceName: string,
-// 	shaderResourceName: string,
-// 	order: i32,
-// }
-
-// Material :: struct {
-// 	subMaterialResourceName: []string,
-// }
 
 Mesh :: struct {
 	materialResourceName: string,
@@ -73,8 +58,6 @@ Vertex :: struct {
 modelMatrix := la.MATRIX4F32_IDENTITY
 viewMatrix := la.MATRIX4F32_IDENTITY
 projectionMatrix: la.Matrix4f32
-
-// mesh : Mesh
 
 start_time := time.now()
 
@@ -182,13 +165,6 @@ game :: proc() {
 
 		shader :: cstring(#load("shader.wgsl"))
 
-		// state.module = wgpu.DeviceCreateShaderModule(state.device, &{
-		// 	nextInChain = &wgpu.ShaderModuleWGSLDescriptor{
-		// 		sType = .ShaderModuleWGSLDescriptor,
-		// 		code  = shader,
-		// 	},
-		// })
-
 		shaders["testShader"] = wgpu.DeviceCreateShaderModule(
 			state.device,
 			&{
@@ -209,12 +185,6 @@ game :: proc() {
 				},
 			),
 		}
-
-		// mesh.vertexBuffer = wgpu.DeviceCreateBuffer(state.device, &wgpu.BufferDescriptor{
-		// 	label = "Vertex Buffer",
-		// 	usage = {.Vertex, .CopyDst},
-		// 	size = size_of(mesh.vertBuffer),
-		// })
 
 		mesh := &meshes["test"]
 		copy(
@@ -254,7 +224,7 @@ game :: proc() {
 
 		state.uniform_buffer = wgpu.DeviceCreateBuffer(
 			state.device,
-			&wgpu.BufferDescriptor{
+			&wgpu.BufferDescriptor {
 				label = "Uniform Buffer",
 				usage = {.Uniform, .CopyDst},
 				size = size_of(matrix[4, 4]f32),
@@ -267,30 +237,15 @@ game :: proc() {
 			&wgpu.BindGroupLayoutDescriptor {
 				label = "Bind Group Layout",
 				entryCount = 1,
-				entries = raw_data([]wgpu.BindGroupLayoutEntry{
-					{
-						binding = 0,
-						visibility = {.Vertex},
-						buffer = {
-							type = .Uniform,
-							minBindingSize = size_of(matrix[4, 4]f32),
+				entries = raw_data(
+					[]wgpu.BindGroupLayoutEntry {
+						{
+							binding = 0,
+							visibility = {.Vertex},
+							buffer = {type = .Uniform, minBindingSize = size_of(matrix[4, 4]f32)},
 						},
 					},
-					// {
-					// 	binding = 1,
-					// 	visibility = {.Vertex},
-					// 	buffer = {
-					// 		type = .Uniform,
-					// 	},
-					// },
-					// {
-					// 	binding = 2,
-					// 	visibility = {.Vertex},
-					// 	buffer = {
-					// 		type = .Uniform,
-					// 	},
-					// },
-				}),
+				),
 			},
 		)
 		defer wgpu.BindGroupLayoutRelease(state.uniform_bind_group_layout)
@@ -300,31 +255,23 @@ game :: proc() {
 			&wgpu.BindGroupDescriptor {
 				layout = state.uniform_bind_group_layout,
 				entryCount = 1,
-				entries = raw_data([]wgpu.BindGroupEntry{
-					{
-						binding = 0,
-						buffer = state.uniform_buffer,
-						size = size_of(matrix[4, 4]f32),
+				entries = raw_data(
+					[]wgpu.BindGroupEntry {
+						{
+							binding = 0,
+							buffer = state.uniform_buffer,
+							size = size_of(matrix[4, 4]f32),
+						},
 					},
-					// {
-					// 	binding = 1,
-					// 	buffer = state.uniform_buffer,
-					// 	size = size_of(matrix[4, 4]f32),
-					// },
-					// {
-					// 	binding = 2,
-					// 	buffer = state.uniform_buffer,
-					// 	size = size_of(matrix[4, 4]f32),
-					// },
-				}),
+				),
 			},
 		)
 		defer wgpu.BindGroupRelease(state.uniform_bind_group)
 
-		pipelineLayouts["default"] = wgpu.DeviceCreatePipelineLayout(state.device, &{
-			bindGroupLayoutCount = 1,
-			bindGroupLayouts = &state.uniform_bind_group_layout,
-		})
+		pipelineLayouts["default"] = wgpu.DeviceCreatePipelineLayout(
+			state.device,
+			&{bindGroupLayoutCount = 1, bindGroupLayouts = &state.uniform_bind_group_layout},
+		)
 
 		pipelines["test"] = wgpu.DeviceCreateRenderPipeline(
 			state.device,
@@ -394,13 +341,13 @@ game :: proc() {
 			},
 		)
 
+		init_game_state()
+		defer destroy_game_state()
+	
+		display_game_state()
+
 		os_run(&state.os)
 	}
-
-	init_game_state()
-	defer destroy_game_state()
-
-	display_game_state()
 }
 
 resize :: proc "c" () {
@@ -418,11 +365,12 @@ resize :: proc "c" () {
 	wgpu.SurfaceConfigure(state.surface, &state.config)
 }
 
+//Used to scale and translate our scene from OpenGL's coordinate system to WGPU's
 OPEN_GL_TO_WGPU_MATRIX :: la.Matrix4f32 {
-    1.0, 0.0, 0.0, 0.0,
-    0.0, 1.0, 0.0, 0.0,
-    0.0, 0.0, 0.5, 0.5,
-    0.0, 0.0, 0.0, 1.0,
+	1.0, 0.0, 0.0, 0.0,
+	0.0, 1.0, 0.0, 0.0,
+	0.0, 0.0, 0.5, 0.5,
+	0.0, 0.0, 0.0, 1.0,
 }
 
 frame :: proc "c" (dt: f32) {
@@ -501,30 +449,42 @@ frame :: proc "c" (dt: f32) {
 }
 
 finish :: proc() {
-	for key in meshes {
-		mesh := &meshes[key]
-		wgpu.BufferRelease(mesh.vertexBuffer)
-	}
-	delete_map(meshes)
-	// wgpu.BufferRelease(mesh.vertexBuffer)
-	for _, pipeline in pipelines {
-		wgpu.RenderPipelineRelease(pipeline)
-	}
-	delete_map(pipelines)
-	// wgpu.RenderPipelineRelease(state.pipeline)
-	for _, pipelineLayout in pipelineLayouts {
-		wgpu.PipelineLayoutRelease(pipelineLayout)
-	}
-	delete_map(pipelineLayouts)
-	// wgpu.PipelineLayoutRelease(state.pipeline_layout)
-	for _, shader in shaders {
-		wgpu.ShaderModuleRelease(shader)
-	}
-	delete_map(shaders)
-	// wgpu.ShaderModuleRelease(state.module)
+	cleanup_meshes()
+	cleanup_pipelines()
+	cleanup_pipeline_layouts()
+	cleanup_shaders()
 	wgpu.QueueRelease(state.queue)
 	wgpu.DeviceRelease(state.device)
 	wgpu.AdapterRelease(state.adapter)
 	wgpu.SurfaceRelease(state.surface)
 	wgpu.InstanceRelease(state.instance)
+}
+
+cleanup_meshes :: proc() {
+	for key in meshes {
+		mesh := &meshes[key]
+		wgpu.BufferRelease(mesh.vertexBuffer)
+	}
+	delete_map(meshes)
+}
+
+cleanup_pipelines :: proc() {
+	for _, pipeline in pipelines {
+		wgpu.RenderPipelineRelease(pipeline)
+	}
+	delete_map(pipelines)
+}
+
+cleanup_pipeline_layouts :: proc() {
+	for _, pipelineLayout in pipelineLayouts {
+		wgpu.PipelineLayoutRelease(pipelineLayout)
+	}
+	delete_map(pipelineLayouts)
+}
+
+cleanup_shaders :: proc() {
+	for _, shader in shaders {
+		wgpu.ShaderModuleRelease(shader)
+	}
+	delete_map(shaders)
 }
