@@ -30,9 +30,15 @@ list as I think of new things that would be interesting to work on.
 - [ ] Point lights
 - [ ] Coloured lights
 - [ ] Render Textures
-- [ ] PBR
+- [ ] PBR (Physically Based Rendering)
 - [ ] Collision detection
 - [ ] Ray picking
 - [ ] Particles
 - [ ] Add physics
 - [ ] Global Illumination
+- [ ] MicroUI
+- [ ] Dev Console
+- [ ] Terrain
+- [ ] SSR (Screen-space reflections)
+- [ ] IBL (Image Based Lighting)
+- [ ] ECS (Entity Component System)
