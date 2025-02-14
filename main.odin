@@ -5,6 +5,7 @@ import "core:fmt"
 import "core:math"
 import la "core:math/linalg"
 import "core:mem"
+import "core:strings"
 import "core:time"
 import "vendor:wgpu"
 
@@ -99,7 +100,25 @@ game :: proc() {
 
 	os_init(&state.os)
 
-	state.instance = wgpu.CreateInstance(nil)
+	wgpu.SetLogLevel(wgpu.LogLevel.Debug)
+	wgpu.SetLogCallback(proc "c" (wgpulevel: wgpu.LogLevel, message: cstring, user: rawptr) {
+		context = state.ctx
+		logger := context.logger
+		if logger.procedure == nil {
+			return
+		}
+
+		level := wgpu.ConvertLogLevel(wgpulevel)
+		if level < logger.lowest_level {
+			return
+		}
+
+		smessage := strings.concatenate({"[nais][wgpu]: ", string(message)}, context.temp_allocator)
+		fmt.println(wgpulevel, smessage)
+		logger.procedure(logger.data, level, smessage, logger.options, {})
+	}, nil)
+
+	state.instance = wgpu.CreateInstance(nil/*&wgpu.InstanceDescriptor{nextInChain = &wgpu.InstanceExtras{sType = .InstanceExtras, backends = {.Vulkan}, flags = wgpu.InstanceFlags_Default}}*/)
 	if state.instance == nil {
 		panic("WebGPU is not supported")
 	}
@@ -107,7 +126,7 @@ game :: proc() {
 
 	wgpu.InstanceRequestAdapter(
 		state.instance,
-		&{compatibleSurface = state.surface},
+		&{compatibleSurface = state.surface,/* powerPreference = wgpu.PowerPreference.HighPerformance*/},
 		on_adapter,
 		nil,
 	)
@@ -463,7 +482,7 @@ frame :: proc "c" (dt: f32) {
 				view = frame,
 				loadOp = .Clear,
 				storeOp = .Store,
-				// depthSlice = wgpu.DEPTH_SLICE_UNDEFINED,
+				depthSlice = wgpu.DEPTH_SLICE_UNDEFINED,
 				clearValue = {0.2, 0.2, 0.2, 1},
 			},
 			depthStencilAttachment = &{
