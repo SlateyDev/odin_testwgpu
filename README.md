@@ -20,7 +20,7 @@ list as I think of new things that would be interesting to work on.
 - [x] Look at how to support more shaders, materials, meshes
 - [x] Support model, view, projection matrices for 3D rendering
 - [x] Rendering multiple objects
-- [ ] Depth buffer
+- [x] Depth buffer
 - [ ] Texturing
 - [ ] 3D Model loading
 - [ ] Directional light

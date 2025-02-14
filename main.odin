@@ -63,6 +63,9 @@ start_time := time.now()
 @(private = "file")
 state: State
 
+depthTexture : wgpu.Texture
+depthTextureView : wgpu.TextureView
+
 main :: proc() {
 	when ODIN_DEBUG {
 		track: mem.Tracking_Allocator
@@ -272,9 +275,36 @@ game :: proc() {
 			&{bindGroupLayoutCount = 1, bindGroupLayouts = &state.storage_bind_group_layout},
 		)
 
+		depthTexture = wgpu.DeviceCreateTexture(
+			state.device,
+			&wgpu.TextureDescriptor{
+				size = wgpu.Extent3D{
+					width = width,
+					height = height,
+					depthOrArrayLayers = 1,
+				},
+				format = .Depth24Plus,
+				usage = {.RenderAttachment},
+				dimension = ._2D,
+				sampleCount = 1,
+				mipLevelCount = 1,
+				viewFormatCount = 0,
+			},
+		)
+
+		depthTextureView = wgpu.TextureCreateView(depthTexture, &wgpu.TextureViewDescriptor{
+			aspect = .DepthOnly,
+			baseArrayLayer = 0,
+			arrayLayerCount = 1,
+			baseMipLevel = 0,
+			mipLevelCount = 1,
+			dimension = ._2D,
+			format = .Depth24Plus,
+		})
+	
 		pipelines["test"] = wgpu.DeviceCreateRenderPipeline(
 			state.device,
-			&{
+			&wgpu.RenderPipelineDescriptor{
 				layout = pipelineLayouts["default"],
 				vertex = {
 					module = shaders["testShader"],
@@ -337,6 +367,25 @@ game :: proc() {
 				},
 				primitive = {topology = .TriangleList, cullMode = .None},
 				multisample = {count = 1, mask = 0xFFFFFFFF},
+				depthStencil = &wgpu.DepthStencilState{
+					depthCompare = .Less,
+					stencilReadMask = 0,
+					stencilWriteMask = 0,
+					depthWriteEnabled = true,
+					format = .Depth24Plus,
+					stencilFront = {
+						compare = .Always,
+						failOp = .Keep,
+						depthFailOp = .Keep,
+						passOp = .Keep,
+					},
+					stencilBack = {
+						compare = .Always,
+						failOp = .Keep,
+						depthFailOp = .Keep,
+						passOp = .Keep,
+					},
+				},
 			},
 		)
 
@@ -392,7 +441,15 @@ frame :: proc "c" (dt: f32) {
 	}
 	defer wgpu.TextureRelease(surface_texture.texture)
 
-	frame := wgpu.TextureCreateView(surface_texture.texture, nil)
+	frame := wgpu.TextureCreateView(surface_texture.texture, &{
+		format = .BGRA8Unorm,
+		baseMipLevel = 0,
+		mipLevelCount = 1,
+		baseArrayLayer = 0,
+		arrayLayerCount = 1,
+		aspect = .All,
+		dimension = ._2D,
+	})
 	defer wgpu.TextureViewRelease(frame)
 
 	command_encoder := wgpu.DeviceCreateCommandEncoder(state.device, nil)
@@ -400,14 +457,25 @@ frame :: proc "c" (dt: f32) {
 
 	render_pass_encoder := wgpu.CommandEncoderBeginRenderPass(
 		command_encoder,
-		&{
+		&wgpu.RenderPassDescriptor{
 			colorAttachmentCount = 1,
 			colorAttachments = &wgpu.RenderPassColorAttachment {
 				view = frame,
 				loadOp = .Clear,
 				storeOp = .Store,
-				depthSlice = wgpu.DEPTH_SLICE_UNDEFINED,
+				// depthSlice = wgpu.DEPTH_SLICE_UNDEFINED,
 				clearValue = {0.2, 0.2, 0.2, 1},
+			},
+			depthStencilAttachment = &{
+				view = depthTextureView,
+				depthClearValue = 1.0,
+				depthLoadOp = .Clear,
+				depthStoreOp = .Store,
+				depthReadOnly = false,
+				stencilClearValue = 0,
+				stencilLoadOp = .Clear,
+				stencilStoreOp = .Store,
+				stencilReadOnly = true,
 			},
 		},
 	)
@@ -491,6 +559,8 @@ frame :: proc "c" (dt: f32) {
 finish :: proc() {
 	cleanup_meshes()
 	cleanup_pipelines()
+	wgpu.TextureViewRelease(depthTextureView)
+	wgpu.TextureRelease(depthTexture)
 	cleanup_pipeline_layouts()
 	cleanup_shaders()
 	wgpu.QueueRelease(state.queue)
