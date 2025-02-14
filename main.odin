@@ -23,9 +23,9 @@ State :: struct {
 	device:                    wgpu.Device,
 	config:                    wgpu.SurfaceConfiguration,
 	queue:                     wgpu.Queue,
-	uniform_buffer:            wgpu.Buffer,
-	uniform_bind_group_layout: wgpu.BindGroupLayout,
-	uniform_bind_group:        wgpu.BindGroup,
+	storage_buffer:            wgpu.Buffer,
+	storage_bind_group_layout: wgpu.BindGroupLayout,
+	storage_bind_group:        wgpu.BindGroup,
 }
 
 shaders: map[string]wgpu.ShaderModule
@@ -221,17 +221,17 @@ game :: proc() {
 			3 * size_of(Vertex),
 		)
 
-		state.uniform_buffer = wgpu.DeviceCreateBuffer(
+		state.storage_buffer = wgpu.DeviceCreateBuffer(
 			state.device,
 			&wgpu.BufferDescriptor {
-				label = "Uniform Buffer",
-				usage = {.Uniform, .CopyDst},
-				size = size_of(matrix[4, 4]f32),
+				label = "Storage Buffer",
+				usage = {.Storage, .CopyDst},
+				size = size_of(matrix[4, 4]f32) * 2,
 			},
 		)
-		defer wgpu.BufferRelease(state.uniform_buffer)
+		defer wgpu.BufferRelease(state.storage_buffer)
 
-		state.uniform_bind_group_layout = wgpu.DeviceCreateBindGroupLayout(
+		state.storage_bind_group_layout = wgpu.DeviceCreateBindGroupLayout(
 			state.device,
 			&wgpu.BindGroupLayoutDescriptor {
 				label = "Bind Group Layout",
@@ -241,35 +241,35 @@ game :: proc() {
 						{
 							binding = 0,
 							visibility = {.Vertex},
-							buffer = {type = .Uniform, minBindingSize = size_of(matrix[4, 4]f32)},
+							buffer = {type = .ReadOnlyStorage},
 						},
 					},
 				),
 			},
 		)
-		defer wgpu.BindGroupLayoutRelease(state.uniform_bind_group_layout)
+		defer wgpu.BindGroupLayoutRelease(state.storage_bind_group_layout)
 
-		state.uniform_bind_group = wgpu.DeviceCreateBindGroup(
+		state.storage_bind_group = wgpu.DeviceCreateBindGroup(
 			state.device,
 			&wgpu.BindGroupDescriptor {
-				layout = state.uniform_bind_group_layout,
+				layout = state.storage_bind_group_layout,
 				entryCount = 1,
 				entries = raw_data(
 					[]wgpu.BindGroupEntry {
 						{
 							binding = 0,
-							buffer = state.uniform_buffer,
-							size = size_of(matrix[4, 4]f32),
+							buffer = state.storage_buffer,
+							size = size_of(matrix[4, 4]f32) * 2,
 						},
 					},
 				),
 			},
 		)
-		defer wgpu.BindGroupRelease(state.uniform_bind_group)
+		defer wgpu.BindGroupRelease(state.storage_bind_group)
 
 		pipelineLayouts["default"] = wgpu.DeviceCreatePipelineLayout(
 			state.device,
-			&{bindGroupLayoutCount = 1, bindGroupLayouts = &state.uniform_bind_group_layout},
+			&{bindGroupLayoutCount = 1, bindGroupLayouts = &state.storage_bind_group_layout},
 		)
 
 		pipelines["test"] = wgpu.DeviceCreateRenderPipeline(
@@ -414,7 +414,7 @@ frame :: proc "c" (dt: f32) {
 
 	mesh := &meshes["test"]
 	wgpu.RenderPassEncoderSetPipeline(render_pass_encoder, pipelines["test"])
-	wgpu.RenderPassEncoderSetBindGroup(render_pass_encoder, 0, state.uniform_bind_group)
+	wgpu.RenderPassEncoderSetBindGroup(render_pass_encoder, 0, state.storage_bind_group)
 	wgpu.RenderPassEncoderSetVertexBuffer(
 		render_pass_encoder,
 		0,
@@ -437,7 +437,7 @@ frame :: proc "c" (dt: f32) {
 	)
 
 	transform := OPEN_GL_TO_WGPU_MATRIX * projectionMatrix * viewMatrix * modelMatrix
-	wgpu.QueueWriteBuffer(state.queue, state.uniform_buffer, 0, &transform, size_of(transform))
+	wgpu.QueueWriteBuffer(state.queue, state.storage_buffer, 0, &transform, size_of(transform))
 
 	wgpu.RenderPassEncoderDraw(
 		render_pass_encoder,
@@ -455,28 +455,28 @@ frame :: proc "c" (dt: f32) {
 		3 * size_of(Vertex),
 	)
 
-	// gameObject1.rotation = la.quaternion_from_euler_angles_f32(
-	// 	math.sin(now) * 1.2,
-	// 	0,
-	// 	0,
-	// 	la.Euler_Angle_Order.XYZ,
-	// )
-	// modelMatrix = la.matrix4_from_trs_f32(
-	// 	gameObject1.translation,
-	// 	gameObject1.rotation,
-	// 	gameObject1.scale,
-	// )
+	gameObject1.rotation = la.quaternion_from_euler_angles_f32(
+		math.sin(now) * 1.2,
+		0,
+		0,
+		la.Euler_Angle_Order.XYZ,
+	)
+	modelMatrix = la.matrix4_from_trs_f32(
+		gameObject1.translation,
+		gameObject1.rotation,
+		gameObject1.scale,
+	)
 
-	// transform = OPEN_GL_TO_WGPU_MATRIX * projectionMatrix * viewMatrix * modelMatrix
-	// wgpu.QueueWriteBuffer(state.queue, state.uniform_buffer, 0, &transform, size_of(transform))
+	transform = OPEN_GL_TO_WGPU_MATRIX * projectionMatrix * viewMatrix * modelMatrix
+	wgpu.QueueWriteBuffer(state.queue, state.storage_buffer, size_of(matrix[4, 4]f32), &transform, size_of(transform))
 
-	// wgpu.RenderPassEncoderDraw(
-	// 	render_pass_encoder,
-	// 	vertexCount = 3,
-	// 	instanceCount = 1,
-	// 	firstVertex = 0,
-	// 	firstInstance = 0,
-	// )
+	wgpu.RenderPassEncoderDraw(
+		render_pass_encoder,
+		vertexCount = 3,
+		instanceCount = 1,
+		firstVertex = 0,
+		firstInstance = 1,
+	)
 
 	wgpu.RenderPassEncoderEnd(render_pass_encoder)
 	wgpu.RenderPassEncoderRelease(render_pass_encoder)

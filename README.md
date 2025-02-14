@@ -19,7 +19,8 @@ list as I think of new things that would be interesting to work on.
 - [x] Separate wgsl into its own file
 - [x] Look at how to support more shaders, materials, meshes
 - [x] Support model, view, projection matrices for 3D rendering
-- [ ] Rendering multiple objects
+- [x] Rendering multiple objects
+- [ ] Depth buffer
 - [ ] Texturing
 - [ ] 3D Model loading
 - [ ] Directional light
@@ -42,3 +43,4 @@ list as I think of new things that would be interesting to work on.
 - [ ] SSR (Screen-space reflections)
 - [ ] IBL (Image Based Lighting)
 - [ ] ECS (Entity Component System)
+- [ ] Text Rendering
