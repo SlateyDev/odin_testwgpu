@@ -387,32 +387,7 @@ game :: proc() {
 			},
 		)
 
-		depthTexture = wgpu.DeviceCreateTexture(
-			state.device,
-			&wgpu.TextureDescriptor{
-				size = wgpu.Extent3D{
-					width = width,
-					height = height,
-					depthOrArrayLayers = 1,
-				},
-				format = .Depth24Plus,
-				usage = {.RenderAttachment},
-				dimension = ._2D,
-				sampleCount = 1,
-				mipLevelCount = 1,
-				viewFormatCount = 0,
-			},
-		)
-
-		depthTextureView = wgpu.TextureCreateView(depthTexture, &wgpu.TextureViewDescriptor{
-			aspect = .DepthOnly,
-			baseArrayLayer = 0,
-			arrayLayerCount = 1,
-			baseMipLevel = 0,
-			mipLevelCount = 1,
-			dimension = ._2D,
-			format = .Depth24Plus,
-		})
+		create_depth_texture()
 	
 		pipelines["test"] = wgpu.DeviceCreateRenderPipeline(
 			state.device,
@@ -510,6 +485,37 @@ game :: proc() {
 	}
 }
 
+create_depth_texture :: proc(){
+	if depthTexture != nil do wgpu.TextureRelease(depthTexture)
+	depthTexture = wgpu.DeviceCreateTexture(
+		state.device,
+		&wgpu.TextureDescriptor{
+			size = wgpu.Extent3D{
+				width = state.config.width,
+				height = state.config.height,
+				depthOrArrayLayers = 1,
+			},
+			format = .Depth24Plus,
+			usage = {.RenderAttachment},
+			dimension = ._2D,
+			sampleCount = 1,
+			mipLevelCount = 1,
+			viewFormatCount = 0,
+		},
+	)
+
+	if depthTextureView != nil do wgpu.TextureViewRelease(depthTextureView)
+	depthTextureView = wgpu.TextureCreateView(depthTexture, &wgpu.TextureViewDescriptor{
+		aspect = .DepthOnly,
+		baseArrayLayer = 0,
+		arrayLayerCount = 1,
+		baseMipLevel = 0,
+		mipLevelCount = 1,
+		dimension = ._2D,
+		format = .Depth24Plus,
+	})
+}
+
 resize :: proc "c" () {
 	context = state.ctx
 
@@ -523,6 +529,8 @@ resize :: proc "c" () {
 	)
 
 	wgpu.SurfaceConfigure(state.surface, &state.config)
+
+	create_depth_texture()
 }
 
 //Used to scale and translate our scene from OpenGL's coordinate system to WGPU's
