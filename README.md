@@ -21,7 +21,8 @@ list as I think of new things that would be interesting to work on.
 - [x] Support model, view, projection matrices for 3D rendering
 - [x] Rendering multiple objects
 - [x] Depth buffer
-- [ ] Texturing
+- [x] Texturing
+- [ ] Render a cube
 - [ ] 3D Model loading
 - [ ] Directional light
 - [ ] Flycam

@@ -67,6 +67,12 @@ state: State
 depthTexture : wgpu.Texture
 depthTextureView : wgpu.TextureView
 
+uvTexture : wgpu.Texture
+uvTextureView : wgpu.TextureView
+uvTextureSampler : wgpu.Sampler
+samplerBindGroupLayout : wgpu.BindGroupLayout
+samplerBindGroup : wgpu.BindGroup
+
 main :: proc() {
 	when ODIN_DEBUG {
 		track: mem.Tracking_Allocator
@@ -213,6 +219,10 @@ game :: proc() {
 			[]f32{-1, -1, 0},
 		)
 		copy(
+			mesh.vertBuffer[(0 * size_of(Vertex) + offset_of(Vertex, uv)) / size_of(f32):],
+			[]f32{0, 1},
+		)
+		copy(
 			mesh.vertBuffer[(0 * size_of(Vertex) + offset_of(Vertex, color)) / size_of(f32):],
 			[]f32{1, 0, 0, 1},
 		)
@@ -222,6 +232,10 @@ game :: proc() {
 			[]f32{0, 1, 0},
 		)
 		copy(
+			mesh.vertBuffer[(1 * size_of(Vertex) + offset_of(Vertex, uv)) / size_of(f32):],
+			[]f32{0.5, 0},
+		)
+		copy(
 			mesh.vertBuffer[(1 * size_of(Vertex) + offset_of(Vertex, color)) / size_of(f32):],
 			[]f32{0, 1, 0, 1},
 		)
@@ -229,6 +243,10 @@ game :: proc() {
 		copy(
 			mesh.vertBuffer[(2 * size_of(Vertex) + offset_of(Vertex, position)) / size_of(f32):],
 			[]f32{1, -1, 0},
+		)
+		copy(
+			mesh.vertBuffer[(2 * size_of(Vertex) + offset_of(Vertex, uv)) / size_of(f32):],
+			[]f32{1, 1},
 		)
 		copy(
 			mesh.vertBuffer[(2 * size_of(Vertex) + offset_of(Vertex, color)) / size_of(f32):],
@@ -289,9 +307,84 @@ game :: proc() {
 		)
 		defer wgpu.BindGroupRelease(state.storage_bind_group)
 
+		// Load the image and upload it into a Texture.
+		uvTexture = queue_copy_image_to_texture(
+			state.device,
+			state.queue,
+			"./texture.png",
+		)
+		uvTextureView = wgpu.TextureCreateView(uvTexture)
+
+		// Create a sampler with linear filtering for smooth interpolation.
+		sampler_descriptor := wgpu.SamplerDescriptor {
+			label          = nil,
+			addressModeU = .ClampToEdge,
+			addressModeV = .ClampToEdge,
+			addressModeW = .ClampToEdge,
+			magFilter     = .Linear,
+			minFilter     = .Linear,
+			mipmapFilter  = .Nearest,
+			lodMinClamp  = 0.0,
+			lodMaxClamp  = 32.0,
+			compare        = .Undefined,
+			maxAnisotropy = 1,
+		}
+		uvTextureSampler = wgpu.DeviceCreateSampler(state.device, &sampler_descriptor)
+
+		samplerBindGroupLayout = wgpu.DeviceCreateBindGroupLayout(
+			state.device,
+			&wgpu.BindGroupLayoutDescriptor {
+				label = "Bind Group Layout",
+				entryCount = 2,
+				entries = raw_data(
+					[]wgpu.BindGroupLayoutEntry {
+						{
+							binding = 0,
+							visibility = { .Fragment },
+							sampler = {
+								type = .Filtering,
+							},
+						},
+						{
+							binding = 1,
+							visibility = { .Fragment },
+							texture = {
+								sampleType = .Float,
+								viewDimension = ._2D,
+								multisampled = false,
+							},
+						},
+					},
+				),
+			},
+		)
+		defer wgpu.BindGroupLayoutRelease(samplerBindGroupLayout)
+
+		samplerBindGroup = wgpu.DeviceCreateBindGroup(
+			state.device,
+			&{
+				layout = samplerBindGroupLayout,
+				entryCount = 2,
+				entries = raw_data(
+					[]wgpu.BindGroupEntry {
+						{binding = 0, sampler = uvTextureSampler},
+						{binding = 1, textureView = uvTextureView},
+					},
+				),
+			},
+		)
+		
 		pipelineLayouts["default"] = wgpu.DeviceCreatePipelineLayout(
 			state.device,
-			&{bindGroupLayoutCount = 1, bindGroupLayouts = &state.storage_bind_group_layout},
+			&{
+				bindGroupLayoutCount = 2,
+				bindGroupLayouts = raw_data(
+					[]wgpu.BindGroupLayout {
+						state.storage_bind_group_layout,
+						samplerBindGroupLayout,
+					},
+				),
+			},
 		)
 
 		depthTexture = wgpu.DeviceCreateTexture(
@@ -502,6 +595,7 @@ frame :: proc "c" (dt: f32) {
 	mesh := &meshes["test"]
 	wgpu.RenderPassEncoderSetPipeline(render_pass_encoder, pipelines["test"])
 	wgpu.RenderPassEncoderSetBindGroup(render_pass_encoder, 0, state.storage_bind_group)
+	wgpu.RenderPassEncoderSetBindGroup(render_pass_encoder, 1, samplerBindGroup)
 	wgpu.RenderPassEncoderSetVertexBuffer(
 		render_pass_encoder,
 		0,
