@@ -25,6 +25,7 @@ list as I think of new things that would be interesting to work on.
 - [ ] Render a cube
 - [ ] 3D Model loading
 - [ ] Directional light
+- [ ] Normal mapping
 - [ ] Flycam
 - [ ] Frustum culling
 - [ ] Shadow mapping
@@ -32,6 +33,9 @@ list as I think of new things that would be interesting to work on.
 - [ ] Point lights
 - [ ] Coloured lights
 - [ ] Render Textures
+- [ ] Cube Map
+- [ ] Skybox
+- [ ] Reflections
 - [ ] PBR (Physically Based Rendering)
 - [ ] Collision detection
 - [ ] Ray picking
@@ -45,3 +49,5 @@ list as I think of new things that would be interesting to work on.
 - [ ] IBL (Image Based Lighting)
 - [ ] ECS (Entity Component System)
 - [ ] Text Rendering
+- [ ] Web Export
+- [ ] Compute Shaders

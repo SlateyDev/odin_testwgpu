@@ -73,6 +73,8 @@ uvTextureSampler : wgpu.Sampler
 samplerBindGroupLayout : wgpu.BindGroupLayout
 samplerBindGroup : wgpu.BindGroup
 
+DEPTH_FORMAT :: wgpu.TextureFormat.Depth24Plus
+
 main :: proc() {
 	when ODIN_DEBUG {
 		track: mem.Tracking_Allocator
@@ -373,6 +375,7 @@ game :: proc() {
 				),
 			},
 		)
+		defer wgpu.BindGroupRelease(samplerBindGroup)
 		
 		pipelineLayouts["default"] = wgpu.DeviceCreatePipelineLayout(
 			state.device,
@@ -459,7 +462,7 @@ game :: proc() {
 					stencilReadMask = 0,
 					stencilWriteMask = 0,
 					depthWriteEnabled = true,
-					format = .Depth24Plus,
+					format = DEPTH_FORMAT,
 					stencilFront = {
 						compare = .Always,
 						failOp = .Keep,
@@ -495,7 +498,7 @@ create_depth_texture :: proc(){
 				height = state.config.height,
 				depthOrArrayLayers = 1,
 			},
-			format = .Depth24Plus,
+			format = DEPTH_FORMAT,
 			usage = {.RenderAttachment},
 			dimension = ._2D,
 			sampleCount = 1,
@@ -512,7 +515,7 @@ create_depth_texture :: proc(){
 		baseMipLevel = 0,
 		mipLevelCount = 1,
 		dimension = ._2D,
-		format = .Depth24Plus,
+		format = DEPTH_FORMAT,
 	})
 }
 
@@ -678,6 +681,9 @@ frame :: proc "c" (dt: f32) {
 }
 
 finish :: proc() {
+	wgpu.SamplerRelease(uvTextureSampler)
+	wgpu.TextureViewRelease(uvTextureView)
+	wgpu.TextureRelease(uvTexture)
 	cleanup_meshes()
 	cleanup_pipelines()
 	wgpu.TextureViewRelease(depthTextureView)
