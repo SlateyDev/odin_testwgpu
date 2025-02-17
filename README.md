@@ -22,7 +22,8 @@ list as I think of new things that would be interesting to work on.
 - [x] Rendering multiple objects
 - [x] Depth buffer
 - [x] Texturing
-- [ ] Render a cube
+- [x] Render a cube
+- [x] Render using index buffer
 - [ ] 3D Model loading
 - [ ] Directional light
 - [ ] Normal mapping
