@@ -43,7 +43,7 @@ list as I think of new things that would be interesting to work on.
 - [ ] Add physics
 - [ ] Global Illumination
 - [x] MicroUI
-- [ ] Mouse/Keyboard support for MicroUI
+- [x] Mouse/Keyboard support for MicroUI
 - [ ] Dev Console
 - [ ] Terrain
 - [ ] SSR (Screen-space reflections)

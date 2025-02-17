@@ -45,7 +45,7 @@ renderer := struct {
 mu_ctx: mu.Context
 
 mu_init :: proc() {
-    mu.init(&mu_ctx)
+    mu.init(&mu_ctx, os_set_clipboard, os_get_clipboard)
     mu_ctx.text_width  = mu.default_atlas_text_width
 	mu_ctx.text_height = mu.default_atlas_text_height
 

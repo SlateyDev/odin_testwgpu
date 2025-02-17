@@ -2,7 +2,9 @@ package test
 
 import "core:c"
 import "core:fmt"
+import "core:strings"
 
+import mu "vendor:microui"
 import "vendor:sdl2"
 import "vendor:wgpu"
 import "vendor:wgpu/sdl2glue"
@@ -32,7 +34,7 @@ os_init :: proc(os: ^OS) {
 		return
 	}
 
-	sdl2.AddEventWatch(size_callback, nil)
+	sdl2.AddEventWatch(event_callback, nil)
 }
 
 os_run :: proc(os: ^OS) {
@@ -78,11 +80,81 @@ os_get_surface :: proc(os: ^OS, instance: wgpu.Instance) -> wgpu.Surface {
 }
 
 @(private="file")
-size_callback :: proc "c" (userdata: rawptr, event: ^sdl2.Event) -> c.int {
-	if event.type == .WINDOWEVENT {
-		if event.window.event == .SIZE_CHANGED || event.window.event == .RESIZED {
-			resize()
+event_callback :: proc "c" (userdata: rawptr, event: ^sdl2.Event) -> c.int {
+	context = state.ctx
+	#partial switch event.type {
+		case .WINDOWEVENT:
+			if event.window.event == .SIZE_CHANGED || event.window.event == .RESIZED {
+				resize()
+			}
+		case .MOUSEBUTTONDOWN:
+			switch event.button.button {
+			case sdl2.BUTTON_LEFT:
+				mu.input_mouse_down(&mu_ctx, event.button.x, event.button.y, .LEFT)
+			case sdl2.BUTTON_MIDDLE:
+				mu.input_mouse_down(&mu_ctx, event.button.x, event.button.y, .MIDDLE)
+			case sdl2.BUTTON_RIGHT:
+				mu.input_mouse_down(&mu_ctx, event.button.x, event.button.y, .RIGHT)
+			}
+		case .MOUSEBUTTONUP:
+			switch event.button.button {
+			case sdl2.BUTTON_LEFT:
+				mu.input_mouse_up(&mu_ctx, event.button.x, event.button.y, .LEFT)
+			case sdl2.BUTTON_MIDDLE:
+				mu.input_mouse_up(&mu_ctx, event.button.x, event.button.y, .MIDDLE)
+			case sdl2.BUTTON_RIGHT:
+				mu.input_mouse_up(&mu_ctx, event.button.x, event.button.y, .RIGHT)
+			}
+		case .MOUSEMOTION:
+			mu.input_mouse_move(&mu_ctx, event.motion.x, event.motion.y)
+		case .MOUSEWHEEL:
+			mu.input_scroll(&mu_ctx, event.wheel.x * 30, event.wheel.y * -30)
+
+		case .TEXTINPUT:
+			mu.input_text(&mu_ctx, string(cstring(&event.text.text[0])))
+
+		case .KEYDOWN, .KEYUP:
+			if event.type == .KEYUP && event.key.keysym.sym == .ESCAPE {
+				sdl2.PushEvent(&sdl2.Event{type = .QUIT})
+			}
+
+			fn := mu.input_key_down if event.type == .KEYDOWN else mu.input_key_up
+
+			#partial switch event.key.keysym.sym {
+			case .LSHIFT:    fn(&mu_ctx, .SHIFT)
+			case .RSHIFT:    fn(&mu_ctx, .SHIFT)
+			case .LCTRL:     fn(&mu_ctx, .CTRL)
+			case .RCTRL:     fn(&mu_ctx, .CTRL)
+			case .LALT:      fn(&mu_ctx, .ALT)
+			case .RALT:      fn(&mu_ctx, .ALT)
+			case .RETURN:    fn(&mu_ctx, .RETURN)
+			case .KP_ENTER:  fn(&mu_ctx, .RETURN)
+			case .BACKSPACE: fn(&mu_ctx, .BACKSPACE)
+
+			case .LEFT:  fn(&mu_ctx, .LEFT)
+			case .RIGHT: fn(&mu_ctx, .RIGHT)
+			case .HOME:  fn(&mu_ctx, .HOME)
+			case .END:   fn(&mu_ctx, .END)
+			case .A:     fn(&mu_ctx, .A)
+			case .X:     fn(&mu_ctx, .X)
+			case .C:     fn(&mu_ctx, .C)
+			case .V:     fn(&mu_ctx, .V)
+			}
 		}
-	}
 	return 0
+}
+
+os_set_clipboard :: proc(user_data: rawptr, text: string) -> (ok: bool) {
+	cstr := strings.clone_to_cstring(text)
+	sdl2.SetClipboardText(cstr)
+	delete(cstr)
+	return true
+}
+
+os_get_clipboard :: proc(user_data: rawptr) -> (text: string, ok: bool) {
+	if sdl2.HasClipboardText() {
+		text = string(sdl2.GetClipboardText())
+		ok = true
+	}
+	return
 }
