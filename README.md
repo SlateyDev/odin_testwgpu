@@ -42,7 +42,7 @@ list as I think of new things that would be interesting to work on.
 - [ ] Particles
 - [ ] Add physics
 - [ ] Global Illumination
-- [ ] MicroUI
+- [x] MicroUI
 - [ ] Dev Console
 - [ ] Terrain
 - [ ] SSR (Screen-space reflections)

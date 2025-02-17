@@ -69,6 +69,10 @@ os_get_render_bounds :: proc(os: ^OS) -> (width, height: u32) {
 	return u32(iw), u32(ih)
 }
 
+os_get_dpi :: proc() -> f32 {
+	return 1
+}
+
 os_get_surface :: proc(os: ^OS, instance: wgpu.Instance) -> wgpu.Surface {
 	return sdl2glue.GetSurface(instance, os.window)
 }
