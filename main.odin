@@ -547,7 +547,7 @@ resize :: proc "c" () {
 
 	create_depth_texture()
 
-	r_resize()
+	mu_resize()
 }
 
 //Used to scale and translate our scene from OpenGL's coordinate system to WGPU's
@@ -695,12 +695,14 @@ frame :: proc "c" (dt: f32) {
 	mu.begin(&mu_ctx)
     demo_windows(&mu_ctx)
     mu.end(&mu_ctx)
-    r_render(frame)
+    mu_render(frame)
 
 	wgpu.SurfacePresent(state.surface)
 }
 
 finish :: proc() {
+	mu_shutdown()
+
 	wgpu.SamplerRelease(uvTextureSampler)
 	wgpu.TextureViewRelease(uvTextureView)
 	wgpu.TextureRelease(uvTexture)

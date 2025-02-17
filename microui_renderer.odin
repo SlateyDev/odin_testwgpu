@@ -7,7 +7,8 @@ import      "core:math/linalg"
 import mu   "vendor:microui"
 import      "vendor:wgpu"
 
-Renderer :: struct {
+@(private = "file")
+renderer := struct {
 	module: wgpu.ShaderModule,
 
 	atlas_texture:      wgpu.Texture,
@@ -39,10 +40,9 @@ Renderer :: struct {
 	index_buf: [BUFFER_SIZE * 6]u32,
 	prev_buf_idx: u32,
 	buf_idx:      u32,
-}
+}{}
 
 mu_ctx: mu.Context
-renderer : Renderer
 
 mu_init :: proc() {
     mu.init(&mu_ctx)
@@ -243,14 +243,18 @@ mu_init :: proc() {
 		&{ mu.DEFAULT_ATLAS_WIDTH, mu.DEFAULT_ATLAS_HEIGHT, 1 },
 	)
 
-	r_write_consts()
+	mu_write_consts()
 }
 
-r_resize :: proc() {
-	r_write_consts()
+mu_shutdown :: proc() {
+
 }
 
-r_write_consts :: proc() {
+mu_resize :: proc() {
+	mu_write_consts()
+}
+
+mu_write_consts :: proc() {
 	r := &renderer
 
 	// Transformation matrix to convert from screen to device pixels and scale based on DPI.
@@ -262,7 +266,7 @@ r_write_consts :: proc() {
 	wgpu.QueueWriteBuffer(r.queue, r.const_buffer, 0, &transform, size_of(transform))
 }
 
-r_start_pipeline :: proc(render_view: wgpu.TextureView) -> bool {
+mu_start_pipeline :: proc(render_view: wgpu.TextureView) -> bool {
 	r := &renderer
 
 	r.buf_idx = 0
@@ -282,12 +286,12 @@ r_start_pipeline :: proc(render_view: wgpu.TextureView) -> bool {
 		}),
 	})
 
-	r_bind()
+	mu_bind()
 
 	return true
 }
 
-r_bind :: proc() {
+mu_bind :: proc() {
 	r := &renderer
 
 	wgpu.RenderPassEncoderSetPipeline(r.curr_pass, r.pipeline)
@@ -298,7 +302,7 @@ r_bind :: proc() {
 	wgpu.RenderPassEncoderSetIndexBuffer(r.curr_pass, r.index_buffer, .Uint32, 0, size_of(r.index_buf))
 }
 
-r_flush :: proc() {
+mu_flush :: proc() {
 	r := &renderer
 
 	if r.buf_idx == 0 || r.buf_idx == r.prev_buf_idx { return }
@@ -309,10 +313,10 @@ r_flush :: proc() {
 	r.prev_buf_idx = r.buf_idx
 }
 
-r_full_flush :: proc() {
+mu_full_flush :: proc() {
 	r := &renderer
 
-	r_submit()
+	mu_submit()
 
 	r.buf_idx = 0
 	r.prev_buf_idx = 0
@@ -320,13 +324,13 @@ r_full_flush :: proc() {
 	r.curr_encoder = wgpu.DeviceCreateCommandEncoder(state.device, nil)
 	r.curr_pass = wgpu.CommandEncoderBeginRenderPass(r.curr_encoder, &{})
 
-	r_bind()
+	mu_bind()
 }
 
-r_submit :: proc() {
+mu_submit :: proc() {
 	r := &renderer
 
-	r_flush()
+	mu_flush()
 
 	wgpu.QueueWriteBuffer(r.queue, r.vertex_buffer, 0, &r.vert_buf,  uint(r.buf_idx*8*size_of(f32)))
 	wgpu.QueueWriteBuffer(r.queue, r.tex_buffer,    0, &r.tex_buf,   uint(r.buf_idx*8*size_of(f32)))
@@ -343,34 +347,30 @@ r_submit :: proc() {
 	wgpu.CommandEncoderRelease(r.curr_encoder)
 }
 
-r_present :: proc() {
-	r_submit()
-}
-
-r_render :: proc(render_view: wgpu.TextureView) {
-	if !r_start_pipeline(render_view) {
+mu_render :: proc(render_view: wgpu.TextureView) {
+	if !mu_start_pipeline(render_view) {
 		return
 	}
 
 	command_backing: ^mu.Command
 	for variant in mu.next_command_iterator(&mu_ctx, &command_backing) {
 		switch cmd in variant {
-		case ^mu.Command_Text: r_draw_text(cmd.str, cmd.pos, cmd.color)
-		case ^mu.Command_Rect: r_draw_rect(cmd.rect, cmd.color)
-		case ^mu.Command_Icon: r_draw_icon(cmd.id, cmd.rect, cmd.color)
-		case ^mu.Command_Clip: r_set_clip_rect(cmd.rect)
+		case ^mu.Command_Text: mu_draw_text(cmd.str, cmd.pos, cmd.color)
+		case ^mu.Command_Rect: mu_draw_rect(cmd.rect, cmd.color)
+		case ^mu.Command_Icon: mu_draw_icon(cmd.id, cmd.rect, cmd.color)
+		case ^mu.Command_Clip: mu_set_clip_rect(cmd.rect)
 		case ^mu.Command_Jump: unreachable() 
 		}
 	}
 
-	r_present()
+	mu_submit()
 }
 
-push_quad :: proc(dst, src: mu.Rect, color: mu.Color) #no_bounds_check {
+mu_push_quad :: proc(dst, src: mu.Rect, color: mu.Color) #no_bounds_check {
 	r := &renderer
 
 	if (r.buf_idx == BUFFER_SIZE) {
-		r_full_flush()
+		mu_full_flush()
 	}
 
 	textvert_idx := r.buf_idx * 8
@@ -415,11 +415,11 @@ push_quad :: proc(dst, src: mu.Rect, color: mu.Color) #no_bounds_check {
 	})
 }
 
-r_draw_rect :: proc(rect: mu.Rect, color: mu.Color) {
-	push_quad(rect, mu.default_atlas[mu.DEFAULT_ATLAS_WHITE], color)
+mu_draw_rect :: proc(rect: mu.Rect, color: mu.Color) {
+	mu_push_quad(rect, mu.default_atlas[mu.DEFAULT_ATLAS_WHITE], color)
 }
 
-r_draw_text :: proc(text: string, pos: mu.Vec2, color: mu.Color) {
+mu_draw_text :: proc(text: string, pos: mu.Vec2, color: mu.Color) {
 	dst := mu.Rect{ pos.x, pos.y, 0, 0 }
 	for ch in text {
 		if ch&0xc0 != 0x80 {
@@ -427,22 +427,22 @@ r_draw_text :: proc(text: string, pos: mu.Vec2, color: mu.Color) {
 			src := mu.default_atlas[mu.DEFAULT_ATLAS_FONT + r]
 			dst.w = src.w
 			dst.h = src.h
-			push_quad(dst, src, color)
+			mu_push_quad(dst, src, color)
 			dst.x += dst.w
 		}
 	}
 }
 
-r_draw_icon :: proc(id: mu.Icon, rect: mu.Rect, color: mu.Color) {
+mu_draw_icon :: proc(id: mu.Icon, rect: mu.Rect, color: mu.Color) {
 	src := mu.default_atlas[id]
 	x := rect.x + (rect.w - src.w) / 2
 	y := rect.y + (rect.h - src.h) / 2
-	push_quad({x, y, src.w, src.h}, src, color)
+	mu_push_quad({x, y, src.w, src.h}, src, color)
 }
 
-r_set_clip_rect :: proc(rect: mu.Rect) {
+mu_set_clip_rect :: proc(rect: mu.Rect) {
 	r := &renderer
-	r_flush()
+	mu_flush()
 
 	x := min(u32(rect.x), state.config.width)
 	y := min(u32(rect.y), state.config.height)
