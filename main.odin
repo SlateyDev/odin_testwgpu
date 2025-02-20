@@ -5,8 +5,9 @@ import "core:fmt"
 import "core:math"
 import la "core:math/linalg"
 import "core:mem"
-import "core:strings"
+// import "core:strings"
 import "core:time"
+import "vendor:cgltf"
 import mu   "vendor:microui"
 import "vendor:wgpu"
 
@@ -47,7 +48,9 @@ meshes: map[string]Mesh
 Mesh :: struct {
 	materialResourceName: string,
 	vertexBuffer:         wgpu.Buffer,
+	vertices: uint,
 	indexBuffer:		  wgpu.Buffer,
+	indices: uint,
 }
 
 BUFFER_SIZE :: 16384
@@ -65,9 +68,9 @@ gameObject1 := Node3D {
 }
 
 gameObject2 := Node3D {
-	translation = {-2, 0, 0},
+	translation = {2, 0, 0},
 	rotation    = la.quaternion_from_euler_angles_f32(0, 0, 0, la.Euler_Angle_Order.ZYX),
-	scale       = {1, 1, 1},
+	scale       = {10, 10, 10},
 }
 
 modelMatrix := la.MATRIX4F32_IDENTITY
@@ -123,23 +126,23 @@ game :: proc() {
 
 	os_init(&state.os)
 
-	wgpu.SetLogLevel(wgpu.LogLevel.Debug)
-	wgpu.SetLogCallback(proc "c" (wgpulevel: wgpu.LogLevel, message: cstring, user: rawptr) {
-		context = state.ctx
-		logger := context.logger
-		if logger.procedure == nil {
-			return
-		}
+	// wgpu.SetLogLevel(wgpu.LogLevel.Debug)
+	// wgpu.SetLogCallback(proc "c" (wgpulevel: wgpu.LogLevel, message: cstring, user: rawptr) {
+	// 	context = state.ctx
+	// 	logger := context.logger
+	// 	if logger.procedure == nil {
+	// 		return
+	// 	}
 
-		level := wgpu.ConvertLogLevel(wgpulevel)
-		if level < logger.lowest_level {
-			return
-		}
+	// 	level := wgpu.ConvertLogLevel(wgpulevel)
+	// 	if level < logger.lowest_level {
+	// 		return
+	// 	}
 
-		smessage := strings.concatenate({"[nais][wgpu]: ", string(message)}, context.temp_allocator)
-		fmt.println(wgpulevel, smessage)
-		logger.procedure(logger.data, level, smessage, logger.options, {})
-	}, nil)
+	// 	smessage := strings.concatenate({"[nais][wgpu]: ", string(message)}, context.temp_allocator)
+	// 	fmt.println(wgpulevel, smessage)
+	// 	logger.procedure(logger.data, level, smessage, logger.options, {})
+	// }, nil)
 
 	state.instance = wgpu.CreateInstance(nil/*&wgpu.InstanceDescriptor{nextInChain = &wgpu.InstanceExtras{sType = .InstanceExtras, backends = {.Vulkan}, flags = wgpu.InstanceFlags_Default}}*/)
 	if state.instance == nil {
@@ -228,6 +231,7 @@ game :: proc() {
 				},
 				cube_vertex_data,
 			),
+			vertices = len(cube_vertex_data),
 			indexBuffer = wgpu.DeviceCreateBufferWithData(
 				state.device,
 				&wgpu.BufferWithDataDescriptor {
@@ -236,6 +240,7 @@ game :: proc() {
 				},
 				cube_index_data,
 			),
+			indices = len(cube_index_data),
 		}
 
 		meshes["test"] = Mesh {
@@ -248,6 +253,129 @@ game :: proc() {
 				},
 				triangle_vertex_data,
 			),
+			vertices = 3,
+			indices = 0,
+		}
+
+		//currently only supporting - position: vec3, texcoord: vec2, color: vec4 (optional), with an index buffer
+		{
+			cgltf_options : cgltf.options
+			data, result := cgltf.parse_file(cgltf_options, "./assets/rubber_duck_toy_1k.gltf")
+			if result != .success {
+				return
+			}
+			defer cgltf.free(data)
+
+			buffers_result := cgltf.load_buffers(cgltf_options, data, "./assets/rubber_duck_toy_1k.gltf")
+			if buffers_result != .success {
+				return
+			}
+
+			if len(data.meshes) == 0 do return
+			mesh_data := &data.meshes[0]
+			if len(mesh_data.primitives) == 0 do return
+			mesh_primitive := &mesh_data.primitives[0]
+
+			verts : Maybe(uint) = nil
+
+			vert_data : []Vertex
+			defer delete(vert_data)
+
+			hasColor := false
+
+			for attr in mesh_primitive.attributes {
+				#partial switch attr.type {
+				case .position:
+					if verts == nil {
+						verts = attr.data.count
+						vert_data = make([]Vertex, verts.?)
+					}
+					if verts != attr.data.count do return
+					if attr.data.type != .vec3 do return
+
+					for i in 0..<verts.? {
+						raw_vertex_data : [^]f32 = raw_data(vert_data[i].position[:])
+						read_result := cgltf.accessor_read_float(attr.data, i, raw_vertex_data, 3)
+						if read_result == false {
+							fmt.println("Error while reading gltf")
+							return
+						}
+					}
+				case .texcoord:
+					if verts == nil {
+						verts = attr.data.count
+						vert_data = make([]Vertex, verts.?)
+					}
+					if verts != attr.data.count do return
+					if attr.data.type != .vec2 do return
+					for i in 0..<verts.? {
+						raw_vertex_data : [^]f32 = raw_data(vert_data[i].uv[:])
+						read_result := cgltf.accessor_read_float(attr.data, i, raw_vertex_data, 2)
+						if read_result == false {
+							fmt.println("Error while reading gltf")
+							return
+						}
+					}
+				case .color:
+					if verts == nil {
+						verts = attr.data.count
+						vert_data = make([]Vertex, verts.?)
+					}
+					if verts != attr.data.count do return
+					if attr.data.type != .vec4 do return
+					for i in 0..<verts.? {
+						raw_vertex_data : [^]f32 = raw_data(vert_data[i].color[:])
+						read_result := cgltf.accessor_read_float(attr.data, i, raw_vertex_data, 4)
+						if read_result == false {
+							fmt.println("Error while reading gltf")
+							return
+						}
+					}
+				}
+			}
+
+			if !hasColor {
+				for i in 0..<verts.? {
+					copy(vert_data[i].color[:], []f32{1,1,1,1})
+				}
+			}
+
+			indices : uint = mesh_primitive.indices.count
+
+			index_data : []u32
+			index_data = make([]u32, indices)
+			defer delete(index_data)
+
+			for i in 0..<indices {
+				raw_index_data : [^]u32 = raw_data(index_data[i:i+1])
+				read_result := cgltf.accessor_read_uint(mesh_primitive.indices, i, raw_index_data, 1)
+				if read_result == false {
+					fmt.println("Error while reading gltf")
+					return
+				}
+			}
+
+
+			meshes["duck"] = Mesh {
+				vertexBuffer = wgpu.DeviceCreateBufferWithData(
+					state.device,
+					&wgpu.BufferWithDataDescriptor {
+						label = "Duck Vertex Buffer",
+						usage = {.Vertex},
+					},
+					vert_data,
+				),
+				vertices = len(vert_data),
+				indexBuffer = wgpu.DeviceCreateBufferWithData(
+					state.device,
+					&wgpu.BufferWithDataDescriptor {
+						label = "Duck Index Buffer",
+						usage = {.Index},
+					},
+					index_data,
+				),
+				indices = len(index_data),
+			}
 		}
 
 		state.storage_buffer = wgpu.DeviceCreateBuffer(
@@ -300,7 +428,7 @@ game :: proc() {
 		uvTexture = queue_copy_image_to_texture(
 			state.device,
 			state.queue,
-			"./texture.png",
+			"./assets/textures/sample.png",
 		)
 		uvTextureView = wgpu.TextureCreateView(uvTexture)
 
@@ -593,13 +721,24 @@ frame :: proc "c" (dt: f32) {
 	wgpu.RenderPassEncoderSetPipeline(render_pass_encoder, pipelines["test"])
 	wgpu.RenderPassEncoderSetBindGroup(render_pass_encoder, 0, state.storage_bind_group)
 	wgpu.RenderPassEncoderSetBindGroup(render_pass_encoder, 1, samplerBindGroup)
-	wgpu.RenderPassEncoderSetVertexBuffer(
-		render_pass_encoder,
-		0,
-		mesh.vertexBuffer,
-		0,
-		3 * size_of(Vertex),
-	)
+	if (mesh.vertices != 0 && mesh.vertexBuffer != nil){
+		wgpu.RenderPassEncoderSetVertexBuffer(
+			render_pass_encoder,
+			0,
+			mesh.vertexBuffer,
+			0,
+			u64(mesh.vertices * size_of(Vertex)),
+		)
+	}
+	if (mesh.indices != 0 && mesh.indexBuffer != nil){
+		wgpu.RenderPassEncoderSetIndexBuffer(
+			render_pass_encoder,
+			mesh.indexBuffer,
+			.Uint32,
+			0,
+			u64(mesh.indices * size_of(u32)),
+		)
+	}
 
 	now := f32(time.duration_seconds(time.since(start_time)))
 	gameObject1.rotation = la.quaternion_from_euler_angles_f32(
@@ -617,29 +756,44 @@ frame :: proc "c" (dt: f32) {
 	transform := OPEN_GL_TO_WGPU_MATRIX * projectionMatrix * viewMatrix * modelMatrix
 	wgpu.QueueWriteBuffer(state.queue, state.storage_buffer, 0, &transform, size_of(transform))
 
-	wgpu.RenderPassEncoderDraw(
-		render_pass_encoder,
-		vertexCount = 3,
-		instanceCount = 1,
-		firstVertex = 0,
-		firstInstance = 0,
-	)
+	if mesh.indices != 0 && mesh.indexBuffer != nil {
+		wgpu.RenderPassEncoderDrawIndexed(
+			render_pass_encoder,
+			u32(mesh.indices),
+			instanceCount = 1,
+			firstIndex = 0,
+			baseVertex = 0,
+			firstInstance = 0,
+		)
+	} else {
+		wgpu.RenderPassEncoderDraw(
+			render_pass_encoder,
+			vertexCount = u32(mesh.vertices),
+			instanceCount = 1,
+			firstVertex = 0,
+			firstInstance = 0,
+		)
+	}
 
-	mesh = &meshes["cube"]
-	wgpu.RenderPassEncoderSetVertexBuffer(
-		render_pass_encoder,
-		0,
-		mesh.vertexBuffer,
-		0,
-		u64(len(cube_vertex_data) * 3 * size_of(f32)),
-	)
-	wgpu.RenderPassEncoderSetIndexBuffer(
-		render_pass_encoder,
-		mesh.indexBuffer,
-		.Uint16,
-		0,
-		u64(len(cube_index_data) * size_of(u16)),
-	)
+	mesh = &meshes["duck"]
+	if (mesh.vertices != 0 && mesh.vertexBuffer != nil){
+		wgpu.RenderPassEncoderSetVertexBuffer(
+			render_pass_encoder,
+			0,
+			mesh.vertexBuffer,
+			0,
+			u64(mesh.vertices * size_of(Vertex)),
+		)
+	}
+	if (mesh.indices != 0 && mesh.indexBuffer != nil){
+		wgpu.RenderPassEncoderSetIndexBuffer(
+			render_pass_encoder,
+			mesh.indexBuffer,
+			.Uint32,
+			0,
+			u64(mesh.indices * size_of(u32)),
+		)
+	}
 
 	gameObject2.rotation = la.quaternion_from_euler_angles_f32(
 		math.sin(now) * 1.2,
@@ -656,14 +810,24 @@ frame :: proc "c" (dt: f32) {
 	transform = OPEN_GL_TO_WGPU_MATRIX * projectionMatrix * viewMatrix * modelMatrix
 	wgpu.QueueWriteBuffer(state.queue, state.storage_buffer, size_of(matrix[4, 4]f32), &transform, size_of(transform))
 
-	wgpu.RenderPassEncoderDrawIndexed(
-		render_pass_encoder,
-		u32(len(cube_index_data)),
-		instanceCount = 1,
-		firstIndex = 0,
-		baseVertex = 0,
-		firstInstance = 1,
-	)
+	if mesh.indices != 0 && mesh.indexBuffer != nil {
+		wgpu.RenderPassEncoderDrawIndexed(
+			render_pass_encoder,
+			u32(mesh.indices),
+			instanceCount = 1,
+			firstIndex = 0,
+			baseVertex = 0,
+			firstInstance = 1,
+		)
+	} else {
+		wgpu.RenderPassEncoderDraw(
+			render_pass_encoder,
+			vertexCount = u32(mesh.vertices),
+			instanceCount = 1,
+			firstVertex = 0,
+			firstInstance = 1,
+		)
+	}
 
 	wgpu.RenderPassEncoderEnd(render_pass_encoder)
 	wgpu.RenderPassEncoderRelease(render_pass_encoder)

@@ -110,8 +110,6 @@ queue_copy_image_to_texture_from_image_data :: proc(
 		context.temp_allocator,
 	) or_return
 
-	fmt.println(texture_desc)
-
 	// Copy image data to texture
 	wgpu.QueueWriteTexture(
 		queue,

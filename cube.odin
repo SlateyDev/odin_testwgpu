@@ -41,7 +41,7 @@ cube_vertex_data := []Vertex {
 	vertex(1, -1, -1, 0, 1),
 }
 
-cube_index_data: []u16 = {
+cube_index_data: []u32 = {
 	0, 1, 2, 2, 3, 0, // top
 	4, 5, 6, 6, 7, 4, // bottom
 	8, 9, 10, 10, 11, 8, // right
