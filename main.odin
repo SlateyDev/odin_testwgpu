@@ -50,6 +50,8 @@ pipelineLayouts: map[string]wgpu.PipelineLayout
 pipelines: map[string]wgpu.RenderPipeline
 meshes: map[string]Mesh
 
+objects: [dynamic]^MeshInstance
+
 Mesh :: struct {
 	materialResourceName: string,
 	vertexBuffer:         wgpu.Buffer,
@@ -571,6 +573,12 @@ game :: proc() {
 			},
 		)
 
+		append(
+			&objects,
+			&gameObject1,
+			&gameObject2,
+		)
+
 		mu_init()
 
 		init_game_state()
@@ -699,29 +707,6 @@ frame :: proc "c" (dt: f32) {
 		},
 	)
 
-	mesh := &meshes[gameObject1.mesh]
-	wgpu.RenderPassEncoderSetPipeline(render_pass_encoder, pipelines["test"])
-	wgpu.RenderPassEncoderSetBindGroup(render_pass_encoder, 0, state.storage_bind_group)
-	wgpu.RenderPassEncoderSetBindGroup(render_pass_encoder, 1, samplerBindGroup)
-	if (mesh.vertices != 0 && mesh.vertexBuffer != nil){
-		wgpu.RenderPassEncoderSetVertexBuffer(
-			render_pass_encoder,
-			0,
-			mesh.vertexBuffer,
-			0,
-			u64(mesh.vertices * size_of(Vertex)),
-		)
-	}
-	if (mesh.indices != 0 && mesh.indexBuffer != nil){
-		wgpu.RenderPassEncoderSetIndexBuffer(
-			render_pass_encoder,
-			mesh.indexBuffer,
-			.Uint32,
-			0,
-			u64(mesh.indices * size_of(u32)),
-		)
-	}
-
 	now := f32(time.duration_seconds(time.since(start_time)))
 	gameObject1.rotation = la.quaternion_from_euler_angles_f32(
 		0,
@@ -729,86 +714,65 @@ frame :: proc "c" (dt: f32) {
 		0,
 		la.Euler_Angle_Order.XYZ,
 	)
-	modelMatrix = la.matrix4_from_trs_f32(
-		gameObject1.translation,
-		gameObject1.rotation,
-		gameObject1.scale,
-	)
-
-	transform := OPEN_GL_TO_WGPU_MATRIX * projectionMatrix * viewMatrix * modelMatrix
-	wgpu.QueueWriteBuffer(state.queue, state.storage_buffer, 0, &transform, size_of(transform))
-
-	if mesh.indices != 0 && mesh.indexBuffer != nil {
-		wgpu.RenderPassEncoderDrawIndexed(
-			render_pass_encoder,
-			u32(mesh.indices),
-			instanceCount = 1,
-			firstIndex = 0,
-			baseVertex = 0,
-			firstInstance = 0,
-		)
-	} else {
-		wgpu.RenderPassEncoderDraw(
-			render_pass_encoder,
-			vertexCount = u32(mesh.vertices),
-			instanceCount = 1,
-			firstVertex = 0,
-			firstInstance = 0,
-		)
-	}
-
-	mesh = &meshes[gameObject2.mesh]
-	if (mesh.vertices != 0 && mesh.vertexBuffer != nil){
-		wgpu.RenderPassEncoderSetVertexBuffer(
-			render_pass_encoder,
-			0,
-			mesh.vertexBuffer,
-			0,
-			u64(mesh.vertices * size_of(Vertex)),
-		)
-	}
-	if (mesh.indices != 0 && mesh.indexBuffer != nil){
-		wgpu.RenderPassEncoderSetIndexBuffer(
-			render_pass_encoder,
-			mesh.indexBuffer,
-			.Uint32,
-			0,
-			u64(mesh.indices * size_of(u32)),
-		)
-	}
-
 	gameObject2.rotation = la.quaternion_from_euler_angles_f32(
 		math.sin(now) * 1.2,
 		math.cos(now) * 1,
 		0,
 		la.Euler_Angle_Order.XYZ,
 	)
-	modelMatrix = la.matrix4_from_trs_f32(
-		gameObject2.translation,
-		gameObject2.rotation,
-		gameObject2.scale,
-	)
 
-	transform = OPEN_GL_TO_WGPU_MATRIX * projectionMatrix * viewMatrix * modelMatrix
-	wgpu.QueueWriteBuffer(state.queue, state.storage_buffer, size_of(matrix[4, 4]f32), &transform, size_of(transform))
+	wgpu.RenderPassEncoderSetPipeline(render_pass_encoder, pipelines["test"])
+	wgpu.RenderPassEncoderSetBindGroup(render_pass_encoder, 0, state.storage_bind_group)
+	wgpu.RenderPassEncoderSetBindGroup(render_pass_encoder, 1, samplerBindGroup)
 
-	if mesh.indices != 0 && mesh.indexBuffer != nil {
-		wgpu.RenderPassEncoderDrawIndexed(
-			render_pass_encoder,
-			u32(mesh.indices),
-			instanceCount = 1,
-			firstIndex = 0,
-			baseVertex = 0,
-			firstInstance = 1,
+	for &object, object_index in objects {
+		mesh := &meshes[object.mesh]
+
+		modelMatrix = la.matrix4_from_trs_f32(
+			object.translation,
+			object.rotation,
+			object.scale,
 		)
-	} else {
-		wgpu.RenderPassEncoderDraw(
-			render_pass_encoder,
-			vertexCount = u32(mesh.vertices),
-			instanceCount = 1,
-			firstVertex = 0,
-			firstInstance = 1,
-		)
+		transform := OPEN_GL_TO_WGPU_MATRIX * projectionMatrix * viewMatrix * modelMatrix
+		wgpu.QueueWriteBuffer(state.queue, state.storage_buffer, u64(size_of(matrix[4, 4]f32) * object_index), &transform, size_of(transform))
+	
+		if (mesh.vertices != 0 && mesh.vertexBuffer != nil){
+			wgpu.RenderPassEncoderSetVertexBuffer(
+				render_pass_encoder,
+				0,
+				mesh.vertexBuffer,
+				0,
+				u64(mesh.vertices * size_of(Vertex)),
+			)
+		}
+		if (mesh.indices != 0 && mesh.indexBuffer != nil){
+			wgpu.RenderPassEncoderSetIndexBuffer(
+				render_pass_encoder,
+				mesh.indexBuffer,
+				.Uint32,
+				0,
+				u64(mesh.indices * size_of(u32)),
+			)
+		}
+
+		if mesh.indices != 0 && mesh.indexBuffer != nil {
+			wgpu.RenderPassEncoderDrawIndexed(
+				render_pass_encoder,
+				u32(mesh.indices),
+				instanceCount = 1,
+				firstIndex = 0,
+				baseVertex = 0,
+				firstInstance = u32(object_index),
+			)
+		} else {
+			wgpu.RenderPassEncoderDraw(
+				render_pass_encoder,
+				vertexCount = u32(mesh.vertices),
+				instanceCount = 1,
+				firstVertex = 0,
+				firstInstance = u32(object_index),
+			)
+		}
 	}
 
 	wgpu.RenderPassEncoderEnd(render_pass_encoder)
@@ -839,6 +803,7 @@ finish :: proc() {
 	wgpu.TextureRelease(depthTexture)
 	cleanup_pipeline_layouts()
 	cleanup_shaders()
+	delete(objects)
 	wgpu.QueueRelease(state.queue)
 	wgpu.DeviceRelease(state.device)
 	wgpu.AdapterRelease(state.adapter)
