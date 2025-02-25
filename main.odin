@@ -17,6 +17,11 @@ Node3D :: struct {
 	scale:       la.Vector3f32,
 }
 
+MeshInstance :: struct {
+	using node3d : Node3D,
+	mesh: string,
+}
+
 State :: struct {
 	ctx:                       runtime.Context,
 	os:                        OS,
@@ -61,16 +66,18 @@ Vertex :: struct {
 	color:    [4]f32,
 }
 
-gameObject1 := Node3D {
+gameObject1 := MeshInstance {
 	translation = {0, 0, 0},
 	rotation    = la.quaternion_from_euler_angles_f32(0, 0, 0, la.Euler_Angle_Order.ZYX),
 	scale       = {1, 1, 1},
+	mesh = "cube",
 }
 
-gameObject2 := Node3D {
+gameObject2 := MeshInstance {
 	translation = {2, 0, 0},
 	rotation    = la.quaternion_from_euler_angles_f32(0, 0, 0, la.Euler_Angle_Order.ZYX),
 	scale       = {10, 10, 10},
+	mesh = "duck",
 }
 
 modelMatrix := la.MATRIX4F32_IDENTITY
@@ -119,6 +126,32 @@ main :: proc() {
 	}
 
 	game()
+}
+
+createMeshFromData :: proc(vertex_data : ^[]Vertex, index_data : ^[]u32) -> Mesh {
+	new_mesh := Mesh {
+		vertices = len(vertex_data^),
+		indices = index_data != nil ? len(index_data^) : 0,
+	}
+	new_mesh.vertexBuffer = wgpu.DeviceCreateBufferWithData(
+		state.device,
+		&wgpu.BufferWithDataDescriptor {
+			label = "Vertex Buffer",
+			usage = {.Vertex},
+		},
+		vertex_data^,
+	)
+	if new_mesh.indices > 0 {
+		new_mesh.indexBuffer = wgpu.DeviceCreateBufferWithData(
+			state.device,
+			&wgpu.BufferWithDataDescriptor {
+				label = "Index Buffer",
+				usage = {.Index},
+			},
+			index_data^,
+		)
+	}
+	return new_mesh
 }
 
 game :: proc() {
@@ -222,40 +255,9 @@ game :: proc() {
 			},
 		)
 
-		meshes["cube"] = Mesh {
-			vertexBuffer = wgpu.DeviceCreateBufferWithData(
-				state.device,
-				&wgpu.BufferWithDataDescriptor {
-					label = "Cube Vertex Buffer",
-					usage = {.Vertex},
-				},
-				cube_vertex_data,
-			),
-			vertices = len(cube_vertex_data),
-			indexBuffer = wgpu.DeviceCreateBufferWithData(
-				state.device,
-				&wgpu.BufferWithDataDescriptor {
-					label = "Cube Index Buffer",
-					usage = {.Index},
-				},
-				cube_index_data,
-			),
-			indices = len(cube_index_data),
-		}
+		meshes["cube"] = createMeshFromData(&cube_vertex_data, &cube_index_data)
 
-		meshes["test"] = Mesh {
-			vertexBuffer = wgpu.DeviceCreateBufferWithData(
-				state.device,
-				&wgpu.BufferWithDataDescriptor {
-					label = "Triangle Vertex Buffer",
-					usage = {.Vertex},
-					// size = BUFFER_SIZE * 8 * size_of(f32),
-				},
-				triangle_vertex_data,
-			),
-			vertices = 3,
-			indices = 0,
-		}
+		meshes["triangle"] = createMeshFromData(&triangle_vertex_data, nil)
 
 		//currently only supporting - position: vec3, texcoord: vec2, color: vec4 (optional), with an index buffer
 		{
@@ -355,27 +357,7 @@ game :: proc() {
 				}
 			}
 
-
-			meshes["duck"] = Mesh {
-				vertexBuffer = wgpu.DeviceCreateBufferWithData(
-					state.device,
-					&wgpu.BufferWithDataDescriptor {
-						label = "Duck Vertex Buffer",
-						usage = {.Vertex},
-					},
-					vert_data,
-				),
-				vertices = len(vert_data),
-				indexBuffer = wgpu.DeviceCreateBufferWithData(
-					state.device,
-					&wgpu.BufferWithDataDescriptor {
-						label = "Duck Index Buffer",
-						usage = {.Index},
-					},
-					index_data,
-				),
-				indices = len(index_data),
-			}
+			meshes["duck"] = createMeshFromData(&vert_data, &index_data)
 		}
 
 		state.storage_buffer = wgpu.DeviceCreateBuffer(
@@ -717,7 +699,7 @@ frame :: proc "c" (dt: f32) {
 		},
 	)
 
-	mesh := &meshes["test"]
+	mesh := &meshes[gameObject1.mesh]
 	wgpu.RenderPassEncoderSetPipeline(render_pass_encoder, pipelines["test"])
 	wgpu.RenderPassEncoderSetBindGroup(render_pass_encoder, 0, state.storage_bind_group)
 	wgpu.RenderPassEncoderSetBindGroup(render_pass_encoder, 1, samplerBindGroup)
@@ -775,7 +757,7 @@ frame :: proc "c" (dt: f32) {
 		)
 	}
 
-	mesh = &meshes["duck"]
+	mesh = &meshes[gameObject2.mesh]
 	if (mesh.vertices != 0 && mesh.vertexBuffer != nil){
 		wgpu.RenderPassEncoderSetVertexBuffer(
 			render_pass_encoder,
