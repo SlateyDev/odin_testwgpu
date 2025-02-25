@@ -22,6 +22,15 @@ MeshInstance :: struct {
 	mesh: string,
 }
 
+LightUniform :: struct {
+	position : [3]f32,
+	// Due to uniforms requiring 16 byte (4 float) spacing, we need to use a padding field here
+	_padding : u32,
+	color : [3]f32,
+	// Due to uniforms requiring 16 byte (4 float) spacing, we need to use a padding field here
+	_padding2 : u32,
+}
+
 State :: struct {
 	ctx:                       runtime.Context,
 	os:                        OS,
@@ -29,11 +38,12 @@ State :: struct {
 	surface:                   wgpu.Surface,
 	adapter:                   wgpu.Adapter,
 	device:                    wgpu.Device,
-	config:                    wgpu.SurfaceConfiguration,
+	config:                        wgpu.SurfaceConfiguration,
 	queue:                     wgpu.Queue,
 	uniform_buffer:            wgpu.Buffer,
 	// uniform_bind_group_layout: wgpu.BindGroupLayout,
 	// uniform_bind_group:        wgpu.BindGroup,
+	light_uniform_buffer:      wgpu.Buffer,
 	storage_buffer:            wgpu.Buffer,
 	storage_bind_group_layout: wgpu.BindGroupLayout,
 	storage_bind_group:        wgpu.BindGroup,
@@ -52,6 +62,11 @@ shaders: map[string]wgpu.ShaderModule
 pipelineLayouts: map[string]wgpu.PipelineLayout
 pipelines: map[string]wgpu.RenderPipeline
 meshes: map[string]Mesh
+
+directional_light := LightUniform {
+	position = {2.0, 2.0, 2.0},
+	color = {1.0, 1.0, 1.0},
+}
 
 objects: [dynamic]^MeshInstance
 
@@ -365,6 +380,15 @@ game :: proc() {
 			meshes["duck"] = createMeshFromData(&vert_data, &index_data)
 		}
 
+		state.light_uniform_buffer = wgpu.DeviceCreateBuffer(
+			state.device,
+			&wgpu.BufferDescriptor {
+				label = "Light Uniform Buffer",
+				usage = {.Uniform, .CopyDst},
+				size = size_of(LightUniform),
+			},
+		)
+
 		state.uniform_buffer = wgpu.DeviceCreateBuffer(
 			state.device,
 			&wgpu.BufferDescriptor {
@@ -373,7 +397,6 @@ game :: proc() {
 				size = size_of(matrix[4, 4]f32),
 			},
 		)
-		defer wgpu.BufferRelease(state.uniform_buffer)
 
 		state.storage_buffer = wgpu.DeviceCreateBuffer(
 			state.device,
@@ -383,13 +406,12 @@ game :: proc() {
 				size = size_of(matrix[4, 4]f32) * 2,
 			},
 		)
-		defer wgpu.BufferRelease(state.storage_buffer)
 
 		state.storage_bind_group_layout = wgpu.DeviceCreateBindGroupLayout(
 			state.device,
 			&wgpu.BindGroupLayoutDescriptor {
 				label = "Bind Group Layout",
-				entryCount = 2,
+				entryCount = 3,
 				entries = raw_data(
 					[]wgpu.BindGroupLayoutEntry {
 						{
@@ -402,6 +424,11 @@ game :: proc() {
 							visibility = {.Vertex},
 							buffer = {type = .ReadOnlyStorage},
 						},
+						{
+							binding = 2,
+							visibility = {.Vertex, .Fragment},
+							buffer = {type = .Uniform},
+						},
 					},
 				),
 			},
@@ -412,7 +439,7 @@ game :: proc() {
 			state.device,
 			&wgpu.BindGroupDescriptor {
 				layout = state.storage_bind_group_layout,
-				entryCount = 2,
+				entryCount = 3,
 				entries = raw_data(
 					[]wgpu.BindGroupEntry {
 						{
@@ -424,6 +451,11 @@ game :: proc() {
 							binding = 1,
 							buffer = state.storage_buffer,
 							size = size_of(matrix[4, 4]f32) * 2,
+						},
+						{
+							binding = 2,
+							buffer = state.light_uniform_buffer,
+							size = size_of(LightUniform),
 						},
 					},
 				),
@@ -751,6 +783,8 @@ frame :: proc "c" (dt: f32) {
 	transform := OPEN_GL_TO_WGPU_MATRIX * projectionMatrix * viewMatrix
 	wgpu.QueueWriteBuffer(state.queue, state.uniform_buffer, 0, &transform, size_of(transform))
 
+	wgpu.QueueWriteBuffer(state.queue, state.light_uniform_buffer, 0, &directional_light, size_of(LightUniform))
+
 	for &object, object_index in objects {
 		mesh := &meshes[object.mesh]
 
@@ -829,6 +863,9 @@ finish :: proc() {
 	cleanup_pipeline_layouts()
 	cleanup_shaders()
 	delete(objects)
+	wgpu.BufferRelease(state.light_uniform_buffer)
+	wgpu.BufferRelease(state.uniform_buffer)
+	wgpu.BufferRelease(state.storage_buffer)
 	wgpu.QueueRelease(state.queue)
 	wgpu.DeviceRelease(state.device)
 	wgpu.AdapterRelease(state.adapter)
