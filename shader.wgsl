@@ -11,12 +11,12 @@ struct VertexInput {
     @builtin(vertex_index) in_vertex_index: u32,
     @builtin(instance_index) instanceIndex: u32,
     @location(0) pos: vec4<f32>,
-    @location(1) uv: vec2<f32>,
+    @location(1) tex_coords: vec2<f32>,
     @location(2) color: vec4<f32>,
 }
 struct VertexOutput {
     @builtin(position) position: vec4<f32>,
-    @location(0) uv: vec2<f32>,
+    @location(0) tex_coords: vec2<f32>,
     @location(1) color: vec4<f32>,
 };
 
@@ -26,7 +26,7 @@ fn vs_main(
 ) -> VertexOutput {
     var output: VertexOutput;
     output.position = view_proj * model_matrices[model.instanceIndex] * model.pos;
-    output.uv = model.uv;
+    output.tex_coords = model.tex_coords;
     output.color = model.color;
     return output;
 }
@@ -36,18 +36,17 @@ fn vs_main(
 
 @fragment
 fn fs_main(
-    @location(0) uv: vec2<f32>,
-    @location(1) color: vec4<f32>,
+    in: VertexOutput,
 ) -> @location(0) vec4<f32> {
-    let uv_color = textureSample(myTexture, mySampler, uv);
+    let object_color = textureSample(myTexture, mySampler, in.tex_coords);
 
     let ambient_strength = 0.1;
     let ambient_color = light.color * ambient_strength;
 
-    let result_color = ambient_color * uv_color.xyz;
-    // return vec4(linear_to_srgb(uv_color.rgb), uv_color.a) * color;
-    // return vec4(srgb_to_linear(uv_color.rgb), uv_color.a) * color;
-    return vec4<f32>(result_color, uv_color.a);
+    let result_color = ambient_color * object_color.xyz;
+    // return vec4(linear_to_srgb(uv_color.rgb), uv_color.a) * in.color;
+    // return vec4(srgb_to_linear(uv_color.rgb), uv_color.a) * in.color;
+    return vec4<f32>(result_color, object_color.a);
 }
 
 // Converts a linear (physical) color to sRGB space

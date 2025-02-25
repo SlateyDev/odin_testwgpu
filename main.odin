@@ -81,9 +81,9 @@ Mesh :: struct {
 BUFFER_SIZE :: 16384
 
 Vertex :: struct {
-	position: [3]f32,
-	uv:       [2]f32,
-	color:    [4]f32,
+	position:   [3]f32,
+	tex_coords: [2]f32,
+	color:      [4]f32,
 }
 
 gameObject1 := MeshInstance {
@@ -331,7 +331,7 @@ game :: proc() {
 					if verts != attr.data.count do return
 					if attr.data.type != .vec2 do return
 					for i in 0..<verts.? {
-						raw_vertex_data : [^]f32 = raw_data(vert_data[i].uv[:])
+						raw_vertex_data : [^]f32 = raw_data(vert_data[i].tex_coords[:])
 						read_result := cgltf.accessor_read_float(attr.data, i, raw_vertex_data, 2)
 						if read_result == false {
 							fmt.println("Error while reading gltf")
@@ -569,7 +569,7 @@ game :: proc() {
 										},
 										{
 											format = .Float32x2,
-											offset = u64(offset_of(Vertex, uv)),
+											offset = u64(offset_of(Vertex, tex_coords)),
 											shaderLocation = 1,
 										},
 										{
