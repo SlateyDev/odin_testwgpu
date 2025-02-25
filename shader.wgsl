@@ -1,4 +1,5 @@
-@group(0) @binding(0) var<storage, read> mvp: array<mat4x4<f32>>;
+@group(0) @binding(0) var<uniform> view_proj: mat4x4<f32>;
+@group(0) @binding(1) var<storage, read> model_matrices: array<mat4x4<f32>>;
 
 struct VertexOutput {
     @builtin(position) position: vec4<f32>,
@@ -15,7 +16,7 @@ fn vs_main(
     @location(2) color: vec4<f32>,
 ) -> VertexOutput {
     var output: VertexOutput;
-    output.position = mvp[instanceIndex] * pos;
+    output.position = view_proj * model_matrices[instanceIndex] * pos;
     output.uv = uv;
     output.color = color;
     return output;
