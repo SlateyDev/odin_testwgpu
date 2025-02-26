@@ -2,33 +2,40 @@ struct Light {
     position: vec3<f32>,
     color: vec3<f32>,
 }
+struct Camera {
+    view_proj: mat4x4<f32>,
+    view_pos: vec4<f32>,
+}
 
-@group(0) @binding(0) var<uniform> view_proj: mat4x4<f32>;
+@group(0) @binding(0) var<uniform> camera: Camera;
 @group(0) @binding(1) var<storage, read> model_matrices: array<mat4x4<f32>>;
 @group(0) @binding(2) var<uniform> light : Light;
 
 struct VertexInput {
     @builtin(vertex_index) in_vertex_index: u32,
     @builtin(instance_index) instanceIndex: u32,
-    @location(0) pos: vec4<f32>,
+    @location(0) pos: vec3<f32>,
     @location(1) tex_coords: vec2<f32>,
-    @location(2) color: vec4<f32>,
+    @location(2) normal: vec3<f32>,
 }
 struct VertexOutput {
     @builtin(position) position: vec4<f32>,
     @location(0) tex_coords: vec2<f32>,
-    @location(1) color: vec4<f32>,
+    @location(1) world_normal: vec3<f32>,
+    @location(2) world_position: vec3<f32>,
 };
 
 @vertex
 fn vs_main(
     model : VertexInput,
 ) -> VertexOutput {
-    var output: VertexOutput;
-    output.position = view_proj * model_matrices[model.instanceIndex] * model.pos;
-    output.tex_coords = model.tex_coords;
-    output.color = model.color;
-    return output;
+    var out: VertexOutput;
+    out.tex_coords = model.tex_coords;
+    out.world_normal = normalize(model_matrices[model.instanceIndex] * vec4<f32>(model.normal, 1.0)).xyz;
+    var world_position: vec4<f32> = model_matrices[model.instanceIndex] * vec4<f32>(model.pos, 1.0);
+    out.world_position = world_position.xyz;
+    out.position = camera.view_proj * world_position;
+    return out;
 }
 
 @group(1) @binding(0) var mySampler: sampler;
@@ -38,12 +45,23 @@ fn vs_main(
 fn fs_main(
     in: VertexOutput,
 ) -> @location(0) vec4<f32> {
+    let light_dir = normalize(light.position - in.world_position);
+
+    let view_dir = normalize(camera.view_pos.xyz - in.world_position);
+    let half_dir = normalize(view_dir + light_dir);
+
+    let diffuse_strength = max(dot(in.world_normal, light_dir), 0.0);
+    let diffuse_color = light.color * diffuse_strength;
+
+    let specular_strength = pow(max(dot(in.world_normal, half_dir), 0.0), 32.0);
+    let specular_color = specular_strength * light.color;
+
     let object_color = textureSample(myTexture, mySampler, in.tex_coords);
 
     let ambient_strength = 0.1;
     let ambient_color = light.color * ambient_strength;
 
-    let result_color = ambient_color * object_color.xyz;
+    let result_color = (ambient_color + diffuse_color + specular_color) * object_color.xyz;
     // return vec4(linear_to_srgb(uv_color.rgb), uv_color.a) * in.color;
     // return vec4(srgb_to_linear(uv_color.rgb), uv_color.a) * in.color;
     return vec4<f32>(result_color, object_color.a);

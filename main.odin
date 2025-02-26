@@ -31,6 +31,11 @@ LightUniform :: struct {
 	_padding2 : u32,
 }
 
+CameraUniform :: struct {
+	view_proj: la.Matrix4x4f32,
+	view_pos: la.Vector4f32,
+}
+
 State :: struct {
 	ctx:                       runtime.Context,
 	os:                        OS,
@@ -83,8 +88,10 @@ BUFFER_SIZE :: 16384
 Vertex :: struct {
 	position:   [3]f32,
 	tex_coords: [2]f32,
-	color:      [4]f32,
+	normal:     [3]f32,
 }
+
+camera := la.Vector3f32{0.0, 0.0, 4.0}
 
 gameObject1 := MeshInstance {
 	translation = {0, 0, 0},
@@ -94,7 +101,7 @@ gameObject1 := MeshInstance {
 }
 
 gameObject2 := MeshInstance {
-	translation = {2, 0, 0},
+	translation = {2, -2, 0},
 	rotation    = la.quaternion_from_euler_angles_f32(0, 0, 0, la.Euler_Angle_Order.ZYX),
 	scale       = {10, 10, 10},
 	mesh = "duck",
@@ -303,7 +310,7 @@ game :: proc() {
 			vert_data : []Vertex
 			defer delete(vert_data)
 
-			hasColor := false
+			// hasColor := false
 
 			for attr in mesh_primitive.attributes {
 				#partial switch attr.type {
@@ -338,15 +345,15 @@ game :: proc() {
 							return
 						}
 					}
-				case .color:
+				case .normal:
 					if verts == nil {
 						verts = attr.data.count
 						vert_data = make([]Vertex, verts.?)
 					}
 					if verts != attr.data.count do return
-					if attr.data.type != .vec4 do return
+					if attr.data.type != .vec3 do return
 					for i in 0..<verts.? {
-						raw_vertex_data : [^]f32 = raw_data(vert_data[i].color[:])
+						raw_vertex_data : [^]f32 = raw_data(vert_data[i].normal[:])
 						read_result := cgltf.accessor_read_float(attr.data, i, raw_vertex_data, 4)
 						if read_result == false {
 							fmt.println("Error while reading gltf")
@@ -356,11 +363,11 @@ game :: proc() {
 				}
 			}
 
-			if !hasColor {
-				for i in 0..<verts.? {
-					copy(vert_data[i].color[:], []f32{1,1,1,1})
-				}
-			}
+			// if !hasColor {
+			// 	for i in 0..<verts.? {
+			// 		copy(vert_data[i].color[:], []f32{1,1,1,1})
+			// 	}
+			// }
 
 			indices : uint = mesh_primitive.indices.count
 
@@ -394,7 +401,7 @@ game :: proc() {
 			&wgpu.BufferDescriptor {
 				label = "Uniform Buffer",
 				usage = {.Uniform, .CopyDst},
-				size = size_of(matrix[4, 4]f32),
+				size = size_of(CameraUniform),
 			},
 		)
 
@@ -416,7 +423,7 @@ game :: proc() {
 					[]wgpu.BindGroupLayoutEntry {
 						{
 							binding = 0,
-							visibility = {.Vertex},
+							visibility = {.Vertex, .Fragment},
 							buffer = {type = .Uniform},
 						},
 						{
@@ -445,7 +452,7 @@ game :: proc() {
 						{
 							binding = 0,
 							buffer = state.uniform_buffer,
-							size = size_of(matrix[4, 4]f32),
+							size = size_of(CameraUniform),
 						},
 						{
 							binding = 1,
@@ -573,8 +580,8 @@ game :: proc() {
 											shaderLocation = 1,
 										},
 										{
-											format = .Float32x4,
-											offset = u64(offset_of(Vertex, color)),
+											format = .Float32x3,
+											offset = u64(offset_of(Vertex, normal)),
 											shaderLocation = 2,
 										},
 									},
@@ -781,7 +788,11 @@ frame :: proc "c" (dt: f32) {
 	wgpu.RenderPassEncoderSetBindGroup(render_pass_encoder, 1, samplerBindGroup)
 
 	transform := OPEN_GL_TO_WGPU_MATRIX * projectionMatrix * viewMatrix
-	wgpu.QueueWriteBuffer(state.queue, state.uniform_buffer, 0, &transform, size_of(transform))
+	cameraData := CameraUniform {
+		view_proj = transform,
+		view_pos = la.Vector4f32 {camera.x, camera.y, camera.z, 1.0},
+	}
+	wgpu.QueueWriteBuffer(state.queue, state.uniform_buffer, 0, &cameraData, size_of(CameraUniform))
 
 	wgpu.QueueWriteBuffer(state.queue, state.light_uniform_buffer, 0, &directional_light, size_of(LightUniform))
 

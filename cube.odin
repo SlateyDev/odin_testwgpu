@@ -1,10 +1,10 @@
 package test
 
-vertex :: proc(x, y, z, u, v: f32, r : f32 = 1.0, g : f32 = 1.0, b : f32 = 1.0, a : f32 = 1.0) -> Vertex {
+vertex :: proc(x, y, z, u, v: f32, nx : f32 = 1.0, ny : f32 = 1.0, nz : f32 = 1.0) -> Vertex {
 	return Vertex{
 		position = {x, y, z},
 		tex_coords = {u, v},
-        color = {r, g, b, a},
+        normal = {nx, ny, nz},
 	}
 }
 
