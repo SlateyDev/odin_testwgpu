@@ -91,7 +91,57 @@ Vertex :: struct {
 	normal:     [3]f32,
 }
 
-camera := la.Vector3f32{0.0, 0.0, 4.0}
+Camera :: struct {
+	position:	la.Vector3f32,
+	rotation:	la.Vector3f32,
+	up:			la.Vector3f32,
+	fov: f32,
+	near: f32,
+	far: f32,
+}
+
+FlyCamera :: struct {
+	using camera : Camera,
+	pitch: f32,
+	yaw: f32,
+}
+
+flyCamera := FlyCamera {
+	Camera {
+		la.Vector3f32{0.0, 0.0, -4.0},
+		la.Vector3f32{0.0, 0.0, 1.0},
+		la.Vector3f32{0.0, -1.0, 0.0},
+		72 * la.RAD_PER_DEG,
+		0.01,
+		10.0,
+	},
+	0.0,
+	0.0,
+}
+
+camera_move_forward :: proc(camera : ^FlyCamera, delta: f32) {
+	camera.position += delta * camera.rotation
+}
+
+camera_adjust_pitch :: proc(camera : ^FlyCamera, delta : f32) {
+   //Clamp to 90 and -90
+   camera.pitch = math.max(-89.0 * la.RAD_PER_DEG, math.min(89.0 * la.RAD_PER_DEG, camera.pitch + delta * la.RAD_PER_DEG))
+   camera_update_direction(camera)
+}
+
+camera_adjust_yaw :: proc(camera : ^FlyCamera, delta : f32) {
+   camera.yaw += delta * la.RAD_PER_DEG
+   camera_update_direction(camera)
+}
+
+camera_update_direction :: proc(camera : ^FlyCamera) {
+	xzLen := la.cos(camera.pitch)
+	camera.rotation.x = xzLen * la.cos(camera.yaw + la.PI / 2)
+	camera.rotation.y = la.sin(camera.pitch)
+	camera.rotation.z = xzLen * la.sin(camera.yaw + la.PI / 2)
+
+	fmt.println(camera.rotation)
+}
 
 gameObject1 := MeshInstance {
 	translation = {0, 0, 0},
@@ -264,7 +314,7 @@ game :: proc() {
 		wgpu.SurfaceConfigure(state.surface, &state.config)
 
 		projectionMatrix = la.matrix4_perspective(
-			2 * math.PI / 5,
+			flyCamera.fov,
 			f32(width) / f32(height),
 			1.0,
 			100.0,
@@ -797,10 +847,15 @@ frame :: proc "c" (dt: f32) {
 	wgpu.RenderPassEncoderSetBindGroup(render_pass_encoder, 0, state.storage_bind_group)
 	wgpu.RenderPassEncoderSetBindGroup(render_pass_encoder, 1, samplerBindGroup)
 
+	viewMatrix = la.MATRIX4F32_IDENTITY
+	viewMatrix *= la.matrix4_rotate(flyCamera.pitch, la.VECTOR3F32_X_AXIS)
+	viewMatrix *= la.matrix4_rotate(flyCamera.yaw, la.VECTOR3F32_Y_AXIS)
+	viewMatrix *= la.matrix4_translate(flyCamera.camera.position)
+
 	transform := OPEN_GL_TO_WGPU_MATRIX * projectionMatrix * viewMatrix
 	cameraData := CameraUniform {
 		view_proj = transform,
-		view_pos = la.Vector4f32 {camera.x, camera.y, camera.z, 1.0},
+		view_pos = la.Vector4f32 {flyCamera.position.x, flyCamera.position.y, flyCamera.position.z, 1.0},
 	}
 	wgpu.QueueWriteBuffer(state.queue, state.uniform_buffer, 0, &cameraData, size_of(CameraUniform))
 
@@ -958,13 +1013,21 @@ quat_to_euler_sliders :: proc(ctx: ^mu.Context, val: ^la.Quaternionf32) -> (res:
 	@static y: mu.Real
 	@static z: mu.Real
 
-	x = la.pitch_from_quaternion(val^) * 180 / la.PI
-	y = la.yaw_from_quaternion(val^) * 180 / la.PI
-	z = la.roll_from_quaternion(val^) * 180 / la.PI
+	x, y, z = la.euler_angles_xyz_from_quaternion(val^)
+	// x = la.pitch_from_quaternion(val^) * 180 / la.PI
+	// y = la.yaw_from_quaternion(val^) * 180 / la.PI
+	// z = la.roll_from_quaternion(val^) * 180 / la.PI
+	x = x * la.DEG_PER_RAD
+	y = y * la.DEG_PER_RAD
+	z = z * la.DEG_PER_RAD
 	res = mu.slider(ctx, &x, -180, 180, 0.1, "%.0f", {.ALIGN_CENTER})
 	res = mu.slider(ctx, &y, -180, 180, 0.1, "%.0f", {.ALIGN_CENTER})
 	res = mu.slider(ctx, &z, -180, 180, 0.1, "%.0f", {.ALIGN_CENTER})
-	val^ = la.quaternion_from_pitch_yaw_roll(x / 180 * la.PI, y / 180 * la.PI, z / 180 * la.PI)
+	x = x * la.RAD_PER_DEG
+	y = y * la.RAD_PER_DEG
+	z = z * la.RAD_PER_DEG
+	// val^ = la.quaternion_from_pitch_yaw_roll(x / 180 * la.PI, y / 180 * la.PI, z / 180 * la.PI)
+	val^ = la.quaternion_from_euler_angles(x, y, z, .XYZ)
 	mu.pop_id(ctx)
 	return
 }
