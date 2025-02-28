@@ -123,6 +123,10 @@ camera_move_forward :: proc(camera : ^FlyCamera, delta: f32) {
 	camera.position += delta * camera.rotation
 }
 
+camera_move_right :: proc(camera : ^FlyCamera, delta: f32) {
+	camera.position += delta * la.normalize(la.vector_cross(camera.rotation, la.VECTOR3F32_Y_AXIS))
+}
+
 camera_adjust_pitch :: proc(camera : ^FlyCamera, delta : f32) {
    //Clamp to 90 and -90
    camera.pitch = math.max(-89.0 * la.RAD_PER_DEG, math.min(89.0 * la.RAD_PER_DEG, camera.pitch + delta * la.RAD_PER_DEG))

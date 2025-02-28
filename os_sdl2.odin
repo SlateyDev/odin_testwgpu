@@ -117,8 +117,12 @@ os_run :: proc(os: ^OS) {
 				}
 			}
 		}
-		if sdl2.GetRelativeMouseMode() && sdl2.GetMouseState(nil, nil) & sdl2.BUTTON_LMASK != 0 {
-			camera_move_forward(&flyCamera, 0.1)
+		if sdl2.GetRelativeMouseMode() {
+			keyStates := sdl2.GetKeyboardState(nil)
+			forward := (keyStates[sdl2.Scancode.W] > 0 ? 1 : 0) + (keyStates[sdl2.Scancode.S] > 0 ? -1 : 0)
+			right := (keyStates[sdl2.Scancode.D] > 0 ? 1 : 0) + (keyStates[sdl2.Scancode.A] > 0 ? -1 : 0)
+			camera_move_forward(&flyCamera, f32(forward) * 10 * dt / 1000)
+			camera_move_right(&flyCamera, f32(right) * 10 * dt / 1000)
 		}
 
 		frame(dt)

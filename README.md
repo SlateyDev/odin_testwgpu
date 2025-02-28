@@ -27,7 +27,7 @@ list as I think of new things that would be interesting to work on.
 - [ ] 3D Model loading
 - [ ] Directional light
 - [ ] Normal mapping
-- [ ] Flycam
+- [x] Flycam
 - [ ] Frustum culling
 - [ ] Shadow mapping
 - [ ] Spot lights
