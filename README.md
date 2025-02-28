@@ -24,14 +24,16 @@ list as I think of new things that would be interesting to work on.
 - [x] Texturing
 - [x] Render a cube
 - [x] Render using index buffer
-- [ ] 3D Model loading
+- [x] Simple glTF Model loading (specific structure only)
+- [ ] Improve glTF Model loading
+- [x] Point light
 - [ ] Directional light
-- [ ] Normal mapping
+- [ ] Spot light
 - [x] Flycam
+- [ ] Normal mapping
 - [ ] Frustum culling
 - [ ] Shadow mapping
-- [ ] Spot lights
-- [ ] Point lights
+- [ ] Multiple lights
 - [ ] Coloured lights
 - [ ] Render Textures
 - [ ] Cube Map
