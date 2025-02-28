@@ -1,44 +1,44 @@
 package test
 
-vertex :: proc(x, y, z, u, v: f32, r : f32 = 1.0, g : f32 = 1.0, b : f32 = 1.0, a : f32 = 1.0) -> Vertex {
+vertex :: proc(x, y, z, u, v: f32, nx : f32 = 1.0, ny : f32 = 1.0, nz : f32 = 1.0) -> Vertex {
 	return Vertex{
 		position = {x, y, z},
-		uv = {u, v},
-        color = {r, g, b, a},
+		tex_coords = {u, v},
+        normal = {nx, ny, nz},
 	}
 }
 
 cube_vertex_data := []Vertex {
 	// top (0, 0, 1)
-	vertex(-1, -1, 1, 0, 0),
-	vertex(1, -1, 1, 1, 0),
-	vertex(1, 1, 1, 1, 1),
-	vertex(-1, 1, 1, 0, 1),
+	vertex(-1, -1, 1, 0, 0, 0, 0, 1),
+	vertex(1, -1, 1, 1, 0, 0, 0, 1),
+	vertex(1, 1, 1, 1, 1, 0, 0, 1),
+	vertex(-1, 1, 1, 0, 1, 0, 0, 1),
 	// bottom (0, 0, -1)
-	vertex(-1, 1, -1, 1, 0),
-	vertex(1, 1, -1, 0, 0),
-	vertex(1, -1, -1, 0, 1),
-	vertex(-1, -1, -1, 1, 1),
+	vertex(-1, 1, -1, 1, 0, 0, 0, -1),
+	vertex(1, 1, -1, 0, 0, 0, 0, -1),
+	vertex(1, -1, -1, 0, 1, 0, 0, -1),
+	vertex(-1, -1, -1, 1, 1, 0, 0, -1),
 	// right (1, 0, 0)
-	vertex(1, -1, -1, 0, 0),
-	vertex(1, 1, -1, 1, 0),
-	vertex(1, 1, 1, 1, 1),
-	vertex(1, -1, 1, 0, 1),
+	vertex(1, -1, -1, 0, 0, 1, 0, 0),
+	vertex(1, 1, -1, 1, 0, 1, 0, 0),
+	vertex(1, 1, 1, 1, 1, 1, 0, 0),
+	vertex(1, -1, 1, 0, 1, 1, 0, 0),
 	// left (-1, 0, 0)
-	vertex(-1, -1, 1, 1, 0),
-	vertex(-1, 1, 1, 0, 0),
-	vertex(-1, 1, -1, 0, 1),
-	vertex(-1, -1, -1, 1, 1),
+	vertex(-1, -1, 1, 1, 0, -1, 0, 0),
+	vertex(-1, 1, 1, 0, 0, -1, 0, 0),
+	vertex(-1, 1, -1, 0, 1, -1, 0, 0),
+	vertex(-1, -1, -1, 1, 1, -1, 0, 0),
 	// front (0, 1, 0)
-	vertex(1, 1, -1, 1, 0),
-	vertex(-1, 1, -1, 0, 0),
-	vertex(-1, 1, 1, 0, 1),
-	vertex(1, 1, 1, 1, 1),
+	vertex(1, 1, -1, 1, 0, 0, 1, 0),
+	vertex(-1, 1, -1, 0, 0, 0, 1, 0),
+	vertex(-1, 1, 1, 0, 1, 0, 1, 0),
+	vertex(1, 1, 1, 1, 1, 0, 1, 0),
 	// back (0, -1, 0)
-	vertex(1, -1, 1, 0, 0),
-	vertex(-1, -1, 1, 1, 0),
-	vertex(-1, -1, -1, 1, 1),
-	vertex(1, -1, -1, 0, 1),
+	vertex(1, -1, 1, 0, 0, 0, -1, 0),
+	vertex(-1, -1, 1, 1, 0, 0, -1, 0),
+	vertex(-1, -1, -1, 1, 1, 0, -1, 0),
+	vertex(1, -1, -1, 0, 1, 0, -1, 0),
 }
 
 cube_index_data: []u32 = {
