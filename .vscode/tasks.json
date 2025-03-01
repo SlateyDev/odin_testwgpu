@@ -38,6 +38,7 @@
                 "args": [
                     "build",
                     "${workspaceFolder}",
+                    "-debug",
                     "-vet",
                     "-strict-style",
                     "-show-timings",
