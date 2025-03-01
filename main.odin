@@ -2,14 +2,17 @@ package test
 
 import "base:runtime"
 import "core:fmt"
+import "core:log"
 import "core:math"
 import la "core:math/linalg"
 import "core:mem"
-// import "core:strings"
+import "core:strings"
 import "core:time"
 import "vendor:cgltf"
 import mu   "vendor:microui"
 import "vendor:wgpu"
+
+WGPU_LOGGING :: false
 
 Node3D :: struct {
 	translation: la.Vector3f32,
@@ -143,8 +146,6 @@ camera_update_direction :: proc(camera : ^FlyCamera) {
 	camera.rotation.x = xzLen * la.cos(camera.yaw + la.PI / 2)
 	camera.rotation.y = la.sin(camera.pitch)
 	camera.rotation.z = xzLen * la.sin(camera.yaw + la.PI / 2)
-
-	fmt.println(camera.rotation)
 }
 
 gameObject1 := MeshInstance {
@@ -213,6 +214,9 @@ main :: proc() {
 		_ :: mem
 	}
 
+	context.logger = log.create_console_logger()
+	defer log.destroy_console_logger(context.logger)
+
 	game()
 }
 
@@ -247,23 +251,24 @@ game :: proc() {
 
 	os_init(&state.os)
 
-	// wgpu.SetLogLevel(wgpu.LogLevel.Debug)
-	// wgpu.SetLogCallback(proc "c" (wgpulevel: wgpu.LogLevel, message: cstring, user: rawptr) {
-	// 	context = state.ctx
-	// 	logger := context.logger
-	// 	if logger.procedure == nil {
-	// 		return
-	// 	}
+	if WGPU_LOGGING {
+		wgpu.SetLogLevel(wgpu.LogLevel.Debug)
+		wgpu.SetLogCallback(proc "c" (wgpulevel: wgpu.LogLevel, message: cstring, user: rawptr) {
+			context = state.ctx
+			logger := context.logger
+			if logger.procedure == nil {
+				return
+			}
 
-	// 	level := wgpu.ConvertLogLevel(wgpulevel)
-	// 	if level < logger.lowest_level {
-	// 		return
-	// 	}
+			level := wgpu.ConvertLogLevel(wgpulevel)
+			if level < logger.lowest_level {
+				return
+			}
 
-	// 	smessage := strings.concatenate({"[nais][wgpu]: ", string(message)}, context.temp_allocator)
-	// 	fmt.println(wgpulevel, smessage)
-	// 	logger.procedure(logger.data, level, smessage, logger.options, {})
-	// }, nil)
+			smessage := strings.concatenate({"[nais][wgpu]: ", string(message)}, context.temp_allocator)
+			logger.procedure(logger.data, level, smessage, logger.options, {})
+		}, nil)
+	}
 
 	state.instance = wgpu.CreateInstance(nil/*&wgpu.InstanceDescriptor{nextInChain = &wgpu.InstanceExtras{sType = .InstanceExtras, backends = {.Vulkan}, flags = wgpu.InstanceFlags_Default}}*/)
 	if state.instance == nil {
