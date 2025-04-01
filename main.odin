@@ -8,6 +8,7 @@ import "core:log"
 import "core:math"
 import la "core:math/linalg"
 import "core:mem"
+import "core:strings"
 import "core:time"
 import "vendor:cgltf"
 import mu   "vendor:microui"
@@ -15,6 +16,7 @@ import "vendor:wgpu"
 
 _ :: png
 _ :: cgltf
+_ :: strings
 
 WGPU_LOGGING :: false
 
@@ -264,23 +266,23 @@ game :: proc() {
 
 	os_init()
 
-	if WGPU_LOGGING {
-		// wgpu.SetLogLevel(wgpu.LogLevel.Debug)
-		// wgpu.SetLogCallback(proc "c" (wgpulevel: wgpu.LogLevel, message: string, user: rawptr) {
-		// 	context = state.ctx
-		// 	logger := context.logger
-		// 	if logger.procedure == nil {
-		// 		return
-		// 	}
+	if WGPU_LOGGING && ODIN_OS != .JS {
+		wgpu.SetLogLevel(wgpu.LogLevel.Debug)
+		wgpu.SetLogCallback(proc "c" (wgpulevel: wgpu.LogLevel, message: string, user: rawptr) {
+			context = state.ctx
+			logger := context.logger
+			if logger.procedure == nil {
+				return
+			}
 
-		// 	level := wgpu.ConvertLogLevel(wgpulevel)
-		// 	if level < logger.lowest_level {
-		// 		return
-		// 	}
+			level := wgpu.ConvertLogLevel(wgpulevel)
+			if level < logger.lowest_level {
+				return
+			}
 
-		// 	smessage := strings.concatenate({"[nais][wgpu]: ", string(message)}, context.temp_allocator)
-		// 	logger.procedure(logger.data, level, smessage, logger.options, {})
-		// }, nil)
+			smessage := strings.concatenate({"[nais][wgpu]: ", string(message)}, context.temp_allocator)
+			logger.procedure(logger.data, level, smessage, logger.options, {})
+		}, nil)
 	}
 
 	state.instance = wgpu.CreateInstance(nil/*&wgpu.InstanceDescriptor{nextInChain = &wgpu.InstanceExtras{sType = .InstanceExtras, backends = {.Vulkan}, flags = wgpu.InstanceFlags_Default}}*/)
