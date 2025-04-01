@@ -2,15 +2,18 @@ package test
 
 import "base:runtime"
 import "core:fmt"
+import "core:image"
+import png "core:image/png"
 import "core:log"
 import "core:math"
 import la "core:math/linalg"
 import "core:mem"
-import "core:strings"
 import "core:time"
 import "vendor:cgltf"
 import mu   "vendor:microui"
 import "vendor:wgpu"
+
+_ :: png
 
 WGPU_LOGGING :: false
 
@@ -249,32 +252,32 @@ createMeshFromData :: proc(vertex_data : ^[]Vertex, index_data : ^[]u32) -> Mesh
 game :: proc() {
 	state.ctx = context
 
-	os_init(&state.os)
+	os_init()
 
-	if WGPU_LOGGING {
-		wgpu.SetLogLevel(wgpu.LogLevel.Debug)
-		wgpu.SetLogCallback(proc "c" (wgpulevel: wgpu.LogLevel, message: string, user: rawptr) {
-			context = state.ctx
-			logger := context.logger
-			if logger.procedure == nil {
-				return
-			}
+	// if WGPU_LOGGING {
+	// 	wgpu.SetLogLevel(wgpu.LogLevel.Debug)
+	// 	wgpu.SetLogCallback(proc "c" (wgpulevel: wgpu.LogLevel, message: string, user: rawptr) {
+	// 		context = state.ctx
+	// 		logger := context.logger
+	// 		if logger.procedure == nil {
+	// 			return
+	// 		}
 
-			level := wgpu.ConvertLogLevel(wgpulevel)
-			if level < logger.lowest_level {
-				return
-			}
+	// 		level := wgpu.ConvertLogLevel(wgpulevel)
+	// 		if level < logger.lowest_level {
+	// 			return
+	// 		}
 
-			smessage := strings.concatenate({"[nais][wgpu]: ", string(message)}, context.temp_allocator)
-			logger.procedure(logger.data, level, smessage, logger.options, {})
-		}, nil)
-	}
+	// 		smessage := strings.concatenate({"[nais][wgpu]: ", string(message)}, context.temp_allocator)
+	// 		logger.procedure(logger.data, level, smessage, logger.options, {})
+	// 	}, nil)
+	// }
 
 	state.instance = wgpu.CreateInstance(nil/*&wgpu.InstanceDescriptor{nextInChain = &wgpu.InstanceExtras{sType = .InstanceExtras, backends = {.Vulkan}, flags = wgpu.InstanceFlags_Default}}*/)
 	if state.instance == nil {
 		panic("WebGPU is not supported")
 	}
-	state.surface = os_get_surface(&state.os, state.instance)
+	state.surface = os_get_surface(state.instance)
 
 	wgpu.InstanceRequestAdapter(
 		state.instance,
@@ -310,7 +313,7 @@ game :: proc() {
 		}
 		state.device = device
 
-		width, height := os_get_render_bounds(&state.os)
+		width, height := os_get_render_bounds()
 
 		state.config = wgpu.SurfaceConfiguration {
 			device      = state.device,
@@ -546,11 +549,13 @@ game :: proc() {
 		)
 		defer wgpu.BindGroupRelease(state.storage_bind_group)
 
+		sample_image, _ := image.load_from_bytes(#load("./assets/textures/sample.png"))
+		defer image.destroy(sample_image)
 		// Load the image and upload it into a Texture.
 		uvTexture = queue_copy_image_to_texture(
 			state.device,
 			state.queue,
-			"./assets/textures/sample.png",
+			sample_image,
 		)
 		uvTextureView = wgpu.TextureCreateView(uvTexture)
 
@@ -718,7 +723,7 @@ game :: proc() {
 
 		display_game_state()
 
-		os_run(&state.os)
+		os_run()
 	}
 }
 
@@ -756,7 +761,7 @@ create_depth_texture :: proc(){
 resize :: proc "c" () {
 	context = state.ctx
 
-	state.config.width, state.config.height = os_get_render_bounds(&state.os)
+	state.config.width, state.config.height = os_get_render_bounds()
 
 	projectionMatrix = la.matrix4_perspective(
 		2 * math.PI / 5,
