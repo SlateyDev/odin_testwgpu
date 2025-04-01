@@ -53,5 +53,7 @@ list as I think of new things that would be interesting to work on.
 - [ ] IBL (Image Based Lighting)
 - [ ] ECS (Entity Component System)
 - [ ] Text Rendering
-- [ ] Web Export
+- [x] Web Export
+- [ ] glTF support for web export
+- [ ] Other asset support for web export
 - [ ] Compute Shaders
