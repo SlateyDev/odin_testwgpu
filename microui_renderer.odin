@@ -155,9 +155,9 @@ mu_init :: proc() {
 	})
 
 	r.module = wgpu.DeviceCreateShaderModule(state.device, &{
-		nextInChain = &wgpu.ShaderModuleWGSLDescriptor{
-			sType = .ShaderModuleWGSLDescriptor,
-			code  = #load("mu_shader.wgsl"),
+		nextInChain = &wgpu.ShaderSourceWGSL{
+			sType = .ShaderSourceWGSL,
+			code  = string(#load("mu_shader.wgsl")),
 		},
 	})
 
@@ -173,6 +173,7 @@ mu_init :: proc() {
 			bufferCount = 3,
 			buffers = raw_data([]wgpu.VertexBufferLayout{
 				{
+					stepMode = .Vertex,
 					arrayStride = 8,
 					attributeCount = 1,
 					attributes = &wgpu.VertexAttribute{
@@ -181,6 +182,7 @@ mu_init :: proc() {
 					},
 				},
 				{
+					stepMode = .Vertex,
 					arrayStride = 8,
 					attributeCount = 1,
 					attributes = &wgpu.VertexAttribute{
@@ -189,6 +191,7 @@ mu_init :: proc() {
 					},
 				},
 				{
+					stepMode = .Vertex,
 					arrayStride = 4,
 					attributeCount = 1,
 					attributes = &wgpu.VertexAttribute{

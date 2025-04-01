@@ -253,7 +253,7 @@ game :: proc() {
 
 	if WGPU_LOGGING {
 		wgpu.SetLogLevel(wgpu.LogLevel.Debug)
-		wgpu.SetLogCallback(proc "c" (wgpulevel: wgpu.LogLevel, message: cstring, user: rawptr) {
+		wgpu.SetLogCallback(proc "c" (wgpulevel: wgpu.LogLevel, message: string, user: rawptr) {
 			context = state.ctx
 			logger := context.logger
 			if logger.procedure == nil {
@@ -279,29 +279,30 @@ game :: proc() {
 	wgpu.InstanceRequestAdapter(
 		state.instance,
 		&{compatibleSurface = state.surface,/* powerPreference = wgpu.PowerPreference.HighPerformance*/},
-		on_adapter,
-		nil,
+		{callback = on_adapter},
 	)
 
 	on_adapter :: proc "c" (
 		status: wgpu.RequestAdapterStatus,
 		adapter: wgpu.Adapter,
-		message: cstring,
+		message: string,
 		userdata: rawptr,
+		userdata2: rawptr,
 	) {
 		context = state.ctx
 		if status != .Success || adapter == nil {
 			fmt.panicf("request adapter failure: [%v] %s", status, message)
 		}
 		state.adapter = adapter
-		wgpu.AdapterRequestDevice(adapter, nil, on_device)
+		wgpu.AdapterRequestDevice(adapter, nil, {callback =  on_device})
 	}
 
 	on_device :: proc "c" (
 		status: wgpu.RequestDeviceStatus,
 		device: wgpu.Device,
-		message: cstring,
+		message: string,
 		userdata: rawptr,
+		userdata2: rawptr,
 	) {
 		context = state.ctx
 		if status != .Success || device == nil {
@@ -343,13 +344,13 @@ game :: proc() {
 
 		state.queue = wgpu.DeviceGetQueue(state.device)
 
-		shader :: cstring(#load("shader.wgsl"))
+		shader :: string(#load("shader.wgsl"))
 
 		shaders["testShader"] = wgpu.DeviceCreateShaderModule(
 			state.device,
 			&{
-				nextInChain = &wgpu.ShaderModuleWGSLDescriptor {
-					sType = .ShaderModuleWGSLDescriptor,
+				nextInChain = &wgpu.ShaderSourceWGSL {
+					sType = .ShaderSourceWGSL,
 					code = shader,
 				},
 			},
@@ -555,7 +556,7 @@ game :: proc() {
 
 		// Create a sampler with linear filtering for smooth interpolation.
 		sampler_descriptor := wgpu.SamplerDescriptor {
-			label          = nil,
+			label          = "Sampler Descriptor",
 			addressModeU = .ClampToEdge,
 			addressModeV = .ClampToEdge,
 			addressModeW = .ClampToEdge,
@@ -639,8 +640,8 @@ game :: proc() {
 					buffers = raw_data(
 						[]wgpu.VertexBufferLayout {
 							{
-								arrayStride = size_of(Vertex),
 								stepMode = .Vertex,
+								arrayStride = size_of(Vertex),
 								attributeCount = 3,
 								attributes = raw_data(
 									[]wgpu.VertexAttribute {
@@ -692,7 +693,7 @@ game :: proc() {
 					depthCompare = .Less,
 					stencilReadMask = 0,
 					stencilWriteMask = 0,
-					depthWriteEnabled = true,
+					depthWriteEnabled = .True,
 					format = DEPTH_FORMAT,
 					stencilFront = {
 						compare = .Always,
@@ -784,7 +785,7 @@ frame :: proc "c" (dt: f32) {
 
 	surface_texture := wgpu.SurfaceGetCurrentTexture(state.surface)
 	switch surface_texture.status {
-	case .Success:
+	case .SuccessOptimal, .SuccessSuboptimal:
 	// All good, could check for `surface_texture.suboptimal` here.
 	case .Timeout, .Outdated, .Lost:
 		// Skip this frame, and re-configure surface.
@@ -793,7 +794,7 @@ frame :: proc "c" (dt: f32) {
 		}
 		resize()
 		return
-	case .OutOfMemory, .DeviceLost:
+	case .OutOfMemory, .DeviceLost, .Error:
 		// Fatal error
 		fmt.panicf("[triangle] get_current_texture status=%v", surface_texture.status)
 	}

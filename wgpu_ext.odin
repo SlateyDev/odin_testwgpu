@@ -81,7 +81,7 @@ queue_copy_image_to_texture_from_image_data :: proc(
 
 	// Create the texture
 	texture_desc := wgpu.TextureDescriptor {
-		label = label,
+		label = string(label),
 		size = {width = u32(width), height = u32(height), depthOrArrayLayers = 1},
 		mipLevelCount = 1,
 		sampleCount = 1,
@@ -96,7 +96,7 @@ queue_copy_image_to_texture_from_image_data :: proc(
 
 	// Prepare image data for upload
 	image_copy_texture := texture_as_image_copy(texture)
-	texture_data_layout := wgpu.TextureDataLayout {
+	texture_data_layout := wgpu.TexelCopyBufferLayout {
 		offset         = 0,
 		bytesPerRow  = bytes_per_row,
 		rowsPerImage = u32(height),
@@ -127,7 +127,7 @@ queue_copy_image_to_texture_from_image_data :: proc(
 texture_as_image_copy :: proc "contextless" (
 	self: wgpu.Texture,
 	origin: wgpu.Origin3D = {},
-) -> wgpu.ImageCopyTexture {
+) -> wgpu.TexelCopyTextureInfo {
 	return { texture = self, mipLevel = 0, origin = origin, aspect = wgpu.TextureAspect.All }
 }
 
@@ -422,7 +422,7 @@ queue_create_cubemap_texture :: proc(
 
 	// Create the cubemap texture
 	texture_desc := wgpu.TextureDescriptor {
-		label = c_label,
+		label = string(c_label),
 		size = {
 			width = u32(first_info.width),
 			height = u32(first_info.height),
@@ -463,7 +463,7 @@ queue_create_cubemap_texture :: proc(
 
 		// Prepare image data for upload
 		image_copy_texture := texture_as_image_copy(out.texture, origin)
-		texture_data_layout := wgpu.TextureDataLayout {
+		texture_data_layout := wgpu.TexelCopyBufferLayout {
 			offset         = 0,
 			bytesPerRow  = bytes_per_row,
 			rowsPerImage = u32(face_image_data.height),
