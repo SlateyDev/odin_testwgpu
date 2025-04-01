@@ -646,26 +646,6 @@ game :: proc() {
 
 		create_depth_texture()
 
-		depthStencilState := &wgpu.DepthStencilState{
-			depthCompare = .Less,
-			stencilReadMask = 0,
-			stencilWriteMask = 0,
-			depthWriteEnabled = .True,
-			format = DEPTH_FORMAT,
-			stencilFront = {
-				compare = .Always,
-				failOp = .Keep,
-				depthFailOp = .Keep,
-				passOp = .Keep,
-			},
-			stencilBack = {
-				compare = .Always,
-				failOp = .Keep,
-				depthFailOp = .Keep,
-				passOp = .Keep,
-			},
-		}
-	
 		pipelines["test"] = wgpu.DeviceCreateRenderPipeline(
 			state.device,
 			&wgpu.RenderPipelineDescriptor{
@@ -726,7 +706,25 @@ game :: proc() {
 				},
 				primitive = {topology = .TriangleList, cullMode = .Back, frontFace = .CCW},
 				multisample = {count = 1, mask = 0xFFFFFFFF},
-				depthStencil = depthStencilState,
+				depthStencil = &wgpu.DepthStencilState{
+					depthCompare = .Less,
+					stencilReadMask = 0,
+					stencilWriteMask = 0,
+					depthWriteEnabled = .True,
+					format = DEPTH_FORMAT,
+					stencilFront = {
+						compare = .Always,
+						failOp = .Keep,
+						depthFailOp = .Keep,
+						passOp = .Keep,
+					},
+					stencilBack = {
+						compare = .Always,
+						failOp = .Keep,
+						depthFailOp = .Keep,
+						passOp = .Keep,
+					},
+				},
 			},
 		)
 
@@ -833,18 +831,6 @@ frame :: proc "c" (dt: f32) {
 	command_encoder := wgpu.DeviceCreateCommandEncoder(state.device, nil)
 	defer wgpu.CommandEncoderRelease(command_encoder)
 
-	depthStencilAttachment := &wgpu.RenderPassDepthStencilAttachment {
-		view = depthTextureView,
-		depthClearValue = 1.0,
-		depthLoadOp = .Clear,
-		depthStoreOp = .Store,
-		depthReadOnly = false,
-		stencilClearValue = 0,
-		stencilLoadOp = .Undefined,
-		stencilStoreOp = .Undefined,
-		stencilReadOnly = true,
-	}
-
 	render_pass_encoder := wgpu.CommandEncoderBeginRenderPass(
 		command_encoder,
 		&wgpu.RenderPassDescriptor{
@@ -856,7 +842,17 @@ frame :: proc "c" (dt: f32) {
 				depthSlice = wgpu.DEPTH_SLICE_UNDEFINED,
 				clearValue = {0.2, 0.2, 0.2, 1},
 			},
-			depthStencilAttachment = depthStencilAttachment,
+			depthStencilAttachment = &wgpu.RenderPassDepthStencilAttachment {
+				view = depthTextureView,
+				depthClearValue = 1.0,
+				depthLoadOp = .Clear,
+				depthStoreOp = .Store,
+				depthReadOnly = false,
+				stencilClearValue = 0,
+				stencilLoadOp = .Undefined,
+				stencilStoreOp = .Undefined,
+				stencilReadOnly = true,
+			},
 		},
 	)
 
