@@ -559,7 +559,7 @@ game :: proc() {
 				),
 			},
 		)
-		// defer wgpu.BindGroupRelease(state.storage_bind_group)
+		defer wgpu.BindGroupRelease(state.storage_bind_group)
 
 		sample_image, _ := image.load_from_bytes(#load("./assets/textures/sample.png"))
 		defer image.destroy(sample_image)
@@ -629,7 +629,7 @@ game :: proc() {
 				),
 			},
 		)
-		// defer wgpu.BindGroupRelease(samplerBindGroup)
+		defer wgpu.BindGroupRelease(samplerBindGroup)
 		
 		pipelineLayouts["default"] = wgpu.DeviceCreatePipelineLayout(
 			state.device,
