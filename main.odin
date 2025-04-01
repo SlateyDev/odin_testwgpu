@@ -644,28 +644,24 @@ game :: proc() {
 
 		create_depth_texture()
 
-		when ODIN_OS != .JS {
-			depthStencilState := &wgpu.DepthStencilState{
-				depthCompare = .Less,
-				stencilReadMask = 0,
-				stencilWriteMask = 0,
-				depthWriteEnabled = .True,
-				format = DEPTH_FORMAT,
-				stencilFront = {
-					compare = .Always,
-					failOp = .Keep,
-					depthFailOp = .Keep,
-					passOp = .Keep,
-				},
-				stencilBack = {
-					compare = .Always,
-					failOp = .Keep,
-					depthFailOp = .Keep,
-					passOp = .Keep,
-				},
-			}
-		} else {
-			depthStencilState : ^wgpu.DepthStencilState = nil
+		depthStencilState := &wgpu.DepthStencilState{
+			depthCompare = .Less,
+			stencilReadMask = 0,
+			stencilWriteMask = 0,
+			depthWriteEnabled = .True,
+			format = DEPTH_FORMAT,
+			stencilFront = {
+				compare = .Always,
+				failOp = .Keep,
+				depthFailOp = .Keep,
+				passOp = .Keep,
+			},
+			stencilBack = {
+				compare = .Always,
+				failOp = .Keep,
+				depthFailOp = .Keep,
+				passOp = .Keep,
+			},
 		}
 	
 		pipelines["test"] = wgpu.DeviceCreateRenderPipeline(
@@ -835,20 +831,16 @@ frame :: proc "c" (dt: f32) {
 	command_encoder := wgpu.DeviceCreateCommandEncoder(state.device, nil)
 	defer wgpu.CommandEncoderRelease(command_encoder)
 
-	when ODIN_OS != .JS {
-		depthStencilAttachment := &wgpu.RenderPassDepthStencilAttachment {
-			view = depthTextureView,
-			depthClearValue = 1.0,
-			depthLoadOp = .Clear,
-			depthStoreOp = .Store,
-			depthReadOnly = false,
-			stencilClearValue = 0,
-			stencilLoadOp = .Clear,
-			stencilStoreOp = .Store,
-			stencilReadOnly = true,
-		}
-	} else {
-		depthStencilAttachment : ^wgpu.RenderPassDepthStencilAttachment = nil
+	depthStencilAttachment := &wgpu.RenderPassDepthStencilAttachment {
+		view = depthTextureView,
+		depthClearValue = 1.0,
+		depthLoadOp = .Clear,
+		depthStoreOp = .Store,
+		depthReadOnly = false,
+		stencilClearValue = 0,
+		stencilLoadOp = .Undefined,
+		stencilStoreOp = .Undefined,
+		stencilReadOnly = true,
 	}
 
 	render_pass_encoder := wgpu.CommandEncoderBeginRenderPass(
