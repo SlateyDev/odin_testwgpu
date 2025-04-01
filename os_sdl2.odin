@@ -1,3 +1,4 @@
+#+build !js
 package test
 
 import "core:c"
@@ -13,7 +14,9 @@ OS :: struct {
     window: ^sdl2.Window,
 }
 
-os_init :: proc(os: ^OS) {
+os : OS
+
+os_init :: proc() {
     sdl_flags := sdl2.InitFlags{.VIDEO, .JOYSTICK, .GAMECONTROLLER, .EVENTS}
     if res := sdl2.Init(sdl_flags); res != 0 {
 		fmt.eprintfln("ERROR: Failed to initialize SDL: [%s]", sdl2.GetError())
@@ -35,7 +38,7 @@ os_init :: proc(os: ^OS) {
 	}
 }
 
-os_run :: proc(os: ^OS) {
+os_run :: proc() {
 	now := sdl2.GetPerformanceCounter()
 	last : u64
 	dt: f32
@@ -135,7 +138,7 @@ os_run :: proc(os: ^OS) {
 }
 
 
-os_get_render_bounds :: proc(os: ^OS) -> (width, height: u32) {
+os_get_render_bounds :: proc() -> (width, height: u32) {
 	iw, ih: c.int
 	sdl2.GetWindowSize(os.window, &iw, &ih)
 	return u32(iw), u32(ih)
@@ -145,7 +148,7 @@ os_get_dpi :: proc() -> f32 {
 	return 1
 }
 
-os_get_surface :: proc(os: ^OS, instance: wgpu.Instance) -> wgpu.Surface {
+os_get_surface :: proc(instance: wgpu.Instance) -> wgpu.Surface {
 	return sdl2glue.GetSurface(instance, os.window)
 }
 

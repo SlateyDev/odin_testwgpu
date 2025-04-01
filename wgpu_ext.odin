@@ -131,55 +131,57 @@ texture_as_image_copy :: proc "contextless" (
 	return { texture = self, mipLevel = 0, origin = origin, aspect = wgpu.TextureAspect.All }
 }
 
-get_image_info_stbi_from_c_string_path :: proc(
-	image_path: cstring,
-	loc := #caller_location,
-) -> (
-	info: Image_Info,
-	ok: bool,
-) #optional_ok {
-	w, h, c: i32
-	if stbi.info(image_path, &w, &h, &c) == 0 {
-		// error_reset_and_update(
-		// 	.Load_Image_Failed,
-			fmt.printf(
-				"Failed to get image info for '%s': %s",
-				image_path,
-				stbi.failure_reason(),
-			)
-			// loc,
-		// )
-		return
+when ODIN_OS != .JS {
+	get_image_info_stbi_from_c_string_path :: proc(
+		image_path: cstring,
+		loc := #caller_location,
+	) -> (
+		info: Image_Info,
+		ok: bool,
+	) #optional_ok {
+		w, h, c: i32
+		if stbi.info(image_path, &w, &h, &c) == 0 {
+			// error_reset_and_update(
+			// 	.Load_Image_Failed,
+				fmt.printf(
+					"Failed to get image info for '%s': %s",
+					image_path,
+					stbi.failure_reason(),
+				)
+				// loc,
+			// )
+			return
+		}
+
+		info.width, info.height, info.channels = int(w), int(h), int(c)
+		info.is_hdr = stbi.is_hdr(image_path) != 0
+
+		// Determine bits per channel
+		if info.is_hdr {
+			info.bits_per_channel = 32 // Assuming 32-bit float for HDR
+		} else {
+			info.bits_per_channel = stbi.is_16_bit(image_path) ? 16 : 8
+		}
+
+		return info, true
 	}
 
-	info.width, info.height, info.channels = int(w), int(h), int(c)
-	info.is_hdr = stbi.is_hdr(image_path) != 0
-
-	// Determine bits per channel
-	if info.is_hdr {
-		info.bits_per_channel = 32 // Assuming 32-bit float for HDR
-	} else {
-		info.bits_per_channel = stbi.is_16_bit(image_path) ? 16 : 8
+	get_image_info_stbi_from_string_path :: proc(
+		image_path: string,
+		loc := #caller_location,
+	) -> (
+		info: Image_Info,
+		ok: bool,
+	) #optional_ok {
+		runtime.DEFAULT_TEMP_ALLOCATOR_TEMP_GUARD()
+		c_image_path := strings.clone_to_cstring(image_path, context.temp_allocator)
+		return get_image_info_stbi_from_c_string_path(c_image_path, loc)
 	}
 
-	return info, true
-}
-
-get_image_info_stbi_from_string_path :: proc(
-	image_path: string,
-	loc := #caller_location,
-) -> (
-	info: Image_Info,
-	ok: bool,
-) #optional_ok {
-	runtime.DEFAULT_TEMP_ALLOCATOR_TEMP_GUARD()
-	c_image_path := strings.clone_to_cstring(image_path, context.temp_allocator)
-	return get_image_info_stbi_from_c_string_path(c_image_path, loc)
-}
-
-get_image_info_stbi :: proc {
-	get_image_info_stbi_from_c_string_path,
-	get_image_info_stbi_from_string_path,
+	get_image_info_stbi :: proc {
+		get_image_info_stbi_from_c_string_path,
+		get_image_info_stbi_from_string_path,
+	}
 }
 
 Load_Method :: enum {
@@ -197,115 +199,117 @@ image_info_determine_load_method :: proc(info: Image_Info) -> Load_Method {
 	return .Default
 }
 
-load_image_data_stbi :: proc(
-	image_path: string,
-	loc := #caller_location,
-) -> (
-	image_data: Image_Data,
-	ok: bool,
-) #optional_ok {
-	runtime.DEFAULT_TEMP_ALLOCATOR_TEMP_GUARD()
-	c_image_path := strings.clone_to_cstring(image_path, context.temp_allocator)
+when ODIN_OS != .JS {
+	load_image_data_stbi :: proc(
+		image_path: string,
+		loc := #caller_location,
+	) -> (
+		image_data: Image_Data,
+		ok: bool,
+	) #optional_ok {
+		runtime.DEFAULT_TEMP_ALLOCATOR_TEMP_GUARD()
+		c_image_path := strings.clone_to_cstring(image_path, context.temp_allocator)
 
-	image_data.info = get_image_info_stbi(c_image_path, loc) or_return
+		image_data.info = get_image_info_stbi(c_image_path, loc) or_return
 
-	method := image_info_determine_load_method(image_data.info)
+		method := image_info_determine_load_method(image_data.info)
 
-	width, height, channels: i32
+		width, height, channels: i32
 
-	switch method {
-	case .Default:
-		image_data.raw_data = stbi.load(c_image_path, &width, &height, &channels, 0)
-		image_data.bytes_per_channel = 1
-	case .Load_16:
-		image_data.raw_data = stbi.load_16(c_image_path, &width, &height, &channels, 0)
-		image_data.bytes_per_channel = 2
-	case .Load_F32:
-		image_data.raw_data = stbi.loadf(c_image_path, &width, &height, &channels, 0)
-		image_data.bytes_per_channel = 4
-		image_data.is_float = true
-	}
-
-	if image_data.raw_data == nil {
-		// error_reset_and_update(
-		// 	.Load_Image_Failed,
-			fmt.printf("Failed to load image '%s': %s", image_path, stbi.failure_reason())
-		// 	loc,
-		// )
-		return
-	}
-
-	image_data.total_size = int(width * height * channels)
-
-	switch method {
-	case .Default:
-		image_data.data = mem.slice_ptr(cast([^]byte)image_data.raw_data, image_data.total_size)
-	case .Load_16:
-		image_data.data = mem.slice_ptr(cast([^]u16)image_data.raw_data, image_data.total_size)
-	case .Load_F32:
-		image_data.data = mem.slice_ptr(cast([^]f32)image_data.raw_data, image_data.total_size)
-	}
-
-	return image_data, true
-}
-
-queue_copy_image_to_texture_from_path :: proc(
-	self: wgpu.Device,
-	queue: wgpu.Queue,
-	image_path: string,
-	options: Texture_Creation_Options = {},
-	loc := #caller_location,
-) -> (
-	texture: wgpu.Texture,
-	ok: bool,
-) #optional_ok {
-    image_data := load_image_data_stbi(image_path, loc) or_return
-	defer stbi.image_free(image_data.raw_data)
-
-	texture = queue_copy_image_to_texture_from_image_data(
-		self,
-		queue,
-		image_data,
-		options,
-		loc,
-	) or_return
-
-	return texture, true
-}
-
-queue_copy_image_to_texture_image_paths :: proc(
-	self: wgpu.Device,
-	queue: wgpu.Queue,
-	image_paths: []string,
-	options: Texture_Creation_Options = {},
-	allocator := context.allocator,
-	loc := #caller_location,
-) -> (
-	textures: []wgpu.Texture,
-	ok: bool,
-) #optional_ok {
-	textures = make([]wgpu.Texture, len(image_paths), allocator)
-	defer if !ok {
-		for &t in textures {
-			wgpu.TextureDestroy(t)
-			wgpu.TextureRelease(t)
+		switch method {
+		case .Default:
+			image_data.raw_data = stbi.load(c_image_path, &width, &height, &channels, 0)
+			image_data.bytes_per_channel = 1
+		case .Load_16:
+			image_data.raw_data = stbi.load_16(c_image_path, &width, &height, &channels, 0)
+			image_data.bytes_per_channel = 2
+		case .Load_F32:
+			image_data.raw_data = stbi.loadf(c_image_path, &width, &height, &channels, 0)
+			image_data.bytes_per_channel = 4
+			image_data.is_float = true
 		}
+
+		if image_data.raw_data == nil {
+			// error_reset_and_update(
+			// 	.Load_Image_Failed,
+				fmt.printf("Failed to load image '%s': %s", image_path, stbi.failure_reason())
+			// 	loc,
+			// )
+			return
+		}
+
+		image_data.total_size = int(width * height * channels)
+
+		switch method {
+		case .Default:
+			image_data.data = mem.slice_ptr(cast([^]byte)image_data.raw_data, image_data.total_size)
+		case .Load_16:
+			image_data.data = mem.slice_ptr(cast([^]u16)image_data.raw_data, image_data.total_size)
+		case .Load_F32:
+			image_data.data = mem.slice_ptr(cast([^]f32)image_data.raw_data, image_data.total_size)
+		}
+
+		return image_data, true
 	}
 
-	for path, i in image_paths {
-		image_data := load_image_data_stbi(path, loc) or_return
+	queue_copy_image_to_texture_from_path :: proc(
+		self: wgpu.Device,
+		queue: wgpu.Queue,
+		image_path: string,
+		options: Texture_Creation_Options = {},
+		loc := #caller_location,
+	) -> (
+		texture: wgpu.Texture,
+		ok: bool,
+	) #optional_ok {
+		image_data := load_image_data_stbi(image_path, loc) or_return
 		defer stbi.image_free(image_data.raw_data)
 
-		textures[i] = queue_copy_image_to_texture_from_image_data(
+		texture = queue_copy_image_to_texture_from_image_data(
 			self,
 			queue,
 			image_data,
 			options,
 			loc,
 		) or_return
+
+		return texture, true
 	}
 
-	return textures, true
+	queue_copy_image_to_texture_image_paths :: proc(
+		self: wgpu.Device,
+		queue: wgpu.Queue,
+		image_paths: []string,
+		options: Texture_Creation_Options = {},
+		allocator := context.allocator,
+		loc := #caller_location,
+	) -> (
+		textures: []wgpu.Texture,
+		ok: bool,
+	) #optional_ok {
+		textures = make([]wgpu.Texture, len(image_paths), allocator)
+		defer if !ok {
+			for &t in textures {
+				wgpu.TextureDestroy(t)
+				wgpu.TextureRelease(t)
+			}
+		}
+
+		for path, i in image_paths {
+			image_data := load_image_data_stbi(path, loc) or_return
+			defer stbi.image_free(image_data.raw_data)
+
+			textures[i] = queue_copy_image_to_texture_from_image_data(
+				self,
+				queue,
+				image_data,
+				options,
+				loc,
+			) or_return
+		}
+
+		return textures, true
+	}
 }
 
 queue_copy_image_to_texture_image :: proc(
@@ -351,10 +355,16 @@ queue_copy_image_to_texture_image :: proc(
 	return texture, true
 }
 
-queue_copy_image_to_texture :: proc {
-	queue_copy_image_to_texture_from_path,
-	queue_copy_image_to_texture_image_paths,
-	queue_copy_image_to_texture_image,
+when ODIN_OS != .JS {
+	queue_copy_image_to_texture :: proc {
+		queue_copy_image_to_texture_from_path,
+		queue_copy_image_to_texture_image_paths,
+		queue_copy_image_to_texture_image,
+	}
+} else {
+	queue_copy_image_to_texture :: proc {
+		queue_copy_image_to_texture_image,
+	}
 }
 
 image_info_texture_format :: proc(info: Image_Info) -> wgpu.TextureFormat {
@@ -390,134 +400,136 @@ image_info_texture_format :: proc(info: Image_Info) -> wgpu.TextureFormat {
 	return .RGBA8Unorm // Default to RGBA8 if channels are unexpected
 }
 
-queue_create_cubemap_texture :: proc(
-	self: wgpu.Device,
-	queue: wgpu.Queue,
-	image_paths: [6]string,
-	options: Texture_Creation_Options = {},
-	loc := #caller_location,
-) -> (
-	out: Texture_Resource,
-	ok: bool,
-) #optional_ok {
-	options := options
+when ODIN_OS != .JS {
+	queue_create_cubemap_texture :: proc(
+		self: wgpu.Device,
+		queue: wgpu.Queue,
+		image_paths: [6]string,
+		options: Texture_Creation_Options = {},
+		loc := #caller_location,
+	) -> (
+		out: Texture_Resource,
+		ok: bool,
+	) #optional_ok {
+		options := options
 
-	// Get info of the first image
-	first_info := get_image_info_stbi(image_paths[0], loc) or_return
+		// Get info of the first image
+		first_info := get_image_info_stbi(image_paths[0], loc) or_return
 
-	// Default texture usage if none is given
-	if options.usage == {} {
-		options.usage = {.TextureBinding, .CopyDst, .RenderAttachment}
-	}
-
-	// Determine the texture format based on the image info or use the preferred format
-	format := options.preferred_format.? or_else image_info_texture_format(first_info)
-
-	runtime.DEFAULT_TEMP_ALLOCATOR_TEMP_GUARD()
-
-	c_label: cstring = nil
-	if options.label != "" {
-		c_label = strings.clone_to_cstring(options.label, context.temp_allocator)
-	}
-
-	// Create the cubemap texture
-	texture_desc := wgpu.TextureDescriptor {
-		label = string(c_label),
-		size = {
-			width = u32(first_info.width),
-			height = u32(first_info.height),
-			depthOrArrayLayers = 6,
-		},
-		mipLevelCount = 1,
-		sampleCount = 1,
-		dimension = ._2D,
-		format = format,
-		usage = options.usage,
-	}
-	out.texture = wgpu.DeviceCreateTexture(self, &texture_desc)
-	defer if !ok do wgpu.TextureRelease(out.texture)
-
-	// Calculate bytes per row, ensuring it meets the WGPU alignment requirements
-	bytes_per_row := texture_format_bytes_per_row(format, u32(first_info.width))
-
-	// Load and copy each face of the cubemap
-	for i in 0 ..< 6 {
-		// Check info of each face
-		face_info := get_image_info_stbi(image_paths[i], loc) or_return
-
-		if face_info != first_info {
-			// error_reset_and_update(
-			// 	.Validation,
-				fmt.printf("Cubemap face '%s' has different properties", image_paths[i])
-			// 	loc,
-			// )
-			return
+		// Default texture usage if none is given
+		if options.usage == {} {
+			options.usage = {.TextureBinding, .CopyDst, .RenderAttachment}
 		}
 
-		// Load the face image
-		face_image_data := load_image_data_stbi(image_paths[i], loc) or_return
-		defer stbi.image_free(face_image_data.raw_data)
+		// Determine the texture format based on the image info or use the preferred format
+		format := options.preferred_format.? or_else image_info_texture_format(first_info)
 
-		// Copy the face image to the appropriate layer of the cubemap texture
-		origin := wgpu.Origin3D{0, 0, u32(i)}
+		runtime.DEFAULT_TEMP_ALLOCATOR_TEMP_GUARD()
 
-		// Prepare image data for upload
-		image_copy_texture := texture_as_image_copy(out.texture, origin)
-		texture_data_layout := wgpu.TexelCopyBufferLayout {
-			offset         = 0,
-			bytesPerRow  = bytes_per_row,
-			rowsPerImage = u32(face_image_data.height),
+		c_label: cstring = nil
+		if options.label != "" {
+			c_label = strings.clone_to_cstring(options.label, context.temp_allocator)
 		}
 
-		// Convert image data if necessary
-		pixels_to_upload := _convert_image_data(
-			face_image_data,
-			format,
-			bytes_per_row,
-			context.temp_allocator,
-		) or_return
+		// Create the cubemap texture
+		texture_desc := wgpu.TextureDescriptor {
+			label = string(c_label),
+			size = {
+				width = u32(first_info.width),
+				height = u32(first_info.height),
+				depthOrArrayLayers = 6,
+			},
+			mipLevelCount = 1,
+			sampleCount = 1,
+			dimension = ._2D,
+			format = format,
+			usage = options.usage,
+		}
+		out.texture = wgpu.DeviceCreateTexture(self, &texture_desc)
+		defer if !ok do wgpu.TextureRelease(out.texture)
 
-		wgpu.QueueWriteTexture(
-			queue,
-			&image_copy_texture,
-			&pixels_to_upload,
-            len(pixels_to_upload),
-			&texture_data_layout,
-			&{u32(face_image_data.width), u32(face_image_data.height), 1},
-		)
+		// Calculate bytes per row, ensuring it meets the WGPU alignment requirements
+		bytes_per_row := texture_format_bytes_per_row(format, u32(first_info.width))
+
+		// Load and copy each face of the cubemap
+		for i in 0 ..< 6 {
+			// Check info of each face
+			face_info := get_image_info_stbi(image_paths[i], loc) or_return
+
+			if face_info != first_info {
+				// error_reset_and_update(
+				// 	.Validation,
+					fmt.printf("Cubemap face '%s' has different properties", image_paths[i])
+				// 	loc,
+				// )
+				return
+			}
+
+			// Load the face image
+			face_image_data := load_image_data_stbi(image_paths[i], loc) or_return
+			defer stbi.image_free(face_image_data.raw_data)
+
+			// Copy the face image to the appropriate layer of the cubemap texture
+			origin := wgpu.Origin3D{0, 0, u32(i)}
+
+			// Prepare image data for upload
+			image_copy_texture := texture_as_image_copy(out.texture, origin)
+			texture_data_layout := wgpu.TexelCopyBufferLayout {
+				offset         = 0,
+				bytesPerRow  = bytes_per_row,
+				rowsPerImage = u32(face_image_data.height),
+			}
+
+			// Convert image data if necessary
+			pixels_to_upload := _convert_image_data(
+				face_image_data,
+				format,
+				bytes_per_row,
+				context.temp_allocator,
+			) or_return
+
+			wgpu.QueueWriteTexture(
+				queue,
+				&image_copy_texture,
+				&pixels_to_upload,
+				len(pixels_to_upload),
+				&texture_data_layout,
+				&{u32(face_image_data.width), u32(face_image_data.height), 1},
+			)
+		}
+
+		cube_view_descriptor := wgpu.TextureViewDescriptor {
+			label             = "Cube Texture View",
+			format            = wgpu.TextureGetFormat(out.texture), // Use the same format as the texture
+			dimension         = .Cube,
+			baseMipLevel    = 0,
+			mipLevelCount   = 1, // Assume no mipmaps
+			baseArrayLayer  = 0,
+			arrayLayerCount = 6, // 6 faces of the cube
+			aspect            = .All,
+		}
+		out.view = wgpu.TextureCreateView(out.texture, &cube_view_descriptor)
+		defer if !ok do wgpu.TextureViewRelease(out.view)
+
+		// Create a sampler with linear filtering for smooth interpolation.
+		sampler_descriptor := wgpu.SamplerDescriptor {
+			addressModeU = .Repeat,
+			addressModeV = .Repeat,
+			addressModeW = .Repeat,
+			magFilter     = .Linear,
+			minFilter     = .Linear,
+			mipmapFilter  = .Linear,
+			lodMinClamp  = 0.0,
+			lodMaxClamp  = 1.0,
+			compare        = .Undefined,
+			maxAnisotropy = 1,
+		}
+
+		out.sampler = wgpu.DeviceCreateSampler(self, &sampler_descriptor)
+		// defer if !ok do sampler_release(out.sampler)
+
+		return out, true
 	}
-
-	cube_view_descriptor := wgpu.TextureViewDescriptor {
-		label             = "Cube Texture View",
-		format            = wgpu.TextureGetFormat(out.texture), // Use the same format as the texture
-		dimension         = .Cube,
-		baseMipLevel    = 0,
-		mipLevelCount   = 1, // Assume no mipmaps
-		baseArrayLayer  = 0,
-		arrayLayerCount = 6, // 6 faces of the cube
-		aspect            = .All,
-	}
-	out.view = wgpu.TextureCreateView(out.texture, &cube_view_descriptor)
-	defer if !ok do wgpu.TextureViewRelease(out.view)
-
-	// Create a sampler with linear filtering for smooth interpolation.
-	sampler_descriptor := wgpu.SamplerDescriptor {
-		addressModeU = .Repeat,
-		addressModeV = .Repeat,
-		addressModeW = .Repeat,
-		magFilter     = .Linear,
-		minFilter     = .Linear,
-		mipmapFilter  = .Linear,
-		lodMinClamp  = 0.0,
-		lodMaxClamp  = 1.0,
-		compare        = .Undefined,
-		maxAnisotropy = 1,
-	}
-
-	out.sampler = wgpu.DeviceCreateSampler(self, &sampler_descriptor)
-	// defer if !ok do sampler_release(out.sampler)
-
-	return out, true
 }
 
 texture_resource_release :: proc(res: Texture_Resource) {

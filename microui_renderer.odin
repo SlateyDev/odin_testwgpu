@@ -262,7 +262,7 @@ mu_write_consts :: proc() {
 
 	// Transformation matrix to convert from screen to device pixels and scale based on DPI.
 	dpi := os_get_dpi()
-	width, height := os_get_render_bounds(&state.os)
+	width, height := os_get_render_bounds()
 	fw, fh := f32(width), f32(height)
 	transform := linalg.matrix_ortho3d(0, fw, fh, 0, -1, 1) * linalg.matrix4_scale(dpi)
 

@@ -2,6 +2,8 @@ package test
 
 import "base:runtime"
 import "core:fmt"
+import "core:image"
+import png "core:image/png"
 import "core:log"
 import "core:math"
 import la "core:math/linalg"
@@ -11,6 +13,10 @@ import "core:time"
 import "vendor:cgltf"
 import mu   "vendor:microui"
 import "vendor:wgpu"
+
+_ :: png
+_ :: cgltf
+_ :: strings
 
 WGPU_LOGGING :: false
 
@@ -155,11 +161,20 @@ gameObject1 := MeshInstance {
 	mesh = "cube",
 }
 
-gameObject2 := MeshInstance {
-	translation = {2, -2, 0},
-	rotation    = la.quaternion_from_euler_angles_f32(0, 0, 0, la.Euler_Angle_Order.ZYX),
-	scale       = {10, 10, 10},
-	mesh = "duck",
+when ODIN_OS != .JS {
+	gameObject2 := MeshInstance {
+		translation = {2, -2, 0},
+		rotation    = la.quaternion_from_euler_angles_f32(0, 0, 0, la.Euler_Angle_Order.ZYX),
+		scale       = {10, 10, 10},
+		mesh = "duck",
+	}
+} else {
+	gameObject2 := MeshInstance {
+		translation = {2, -2, 0},
+		rotation    = la.quaternion_from_euler_angles_f32(0, 0, 0, la.Euler_Angle_Order.ZYX),
+		scale       = {1, 1, 1},
+		mesh = "cube",
+	}	
 }
 
 gameObject3 := MeshInstance {
@@ -249,9 +264,9 @@ createMeshFromData :: proc(vertex_data : ^[]Vertex, index_data : ^[]u32) -> Mesh
 game :: proc() {
 	state.ctx = context
 
-	os_init(&state.os)
+	os_init()
 
-	if WGPU_LOGGING {
+	if WGPU_LOGGING && ODIN_OS != .JS {
 		wgpu.SetLogLevel(wgpu.LogLevel.Debug)
 		wgpu.SetLogCallback(proc "c" (wgpulevel: wgpu.LogLevel, message: string, user: rawptr) {
 			context = state.ctx
@@ -274,7 +289,7 @@ game :: proc() {
 	if state.instance == nil {
 		panic("WebGPU is not supported")
 	}
-	state.surface = os_get_surface(&state.os, state.instance)
+	state.surface = os_get_surface(state.instance)
 
 	wgpu.InstanceRequestAdapter(
 		state.instance,
@@ -310,7 +325,7 @@ game :: proc() {
 		}
 		state.device = device
 
-		width, height := os_get_render_bounds(&state.os)
+		width, height := os_get_render_bounds()
 
 		state.config = wgpu.SurfaceConfiguration {
 			device      = state.device,
@@ -363,7 +378,7 @@ game :: proc() {
 		meshes["plane"] = createMeshFromData(&plane_vertex_data, &plane_index_data)
 
 		//currently only supporting - position: vec3, texcoord: vec2, color: vec4 (optional), with an index buffer
-		{
+		when ODIN_OS != .JS {
 			cgltf_options : cgltf.options
 			data, result := cgltf.parse_file(cgltf_options, "./assets/rubber_duck_toy_1k.gltf")
 			if result != .success {
@@ -546,11 +561,13 @@ game :: proc() {
 		)
 		defer wgpu.BindGroupRelease(state.storage_bind_group)
 
+		sample_image, _ := image.load_from_bytes(#load("./assets/textures/sample.png"))
+		defer image.destroy(sample_image)
 		// Load the image and upload it into a Texture.
 		uvTexture = queue_copy_image_to_texture(
 			state.device,
 			state.queue,
-			"./assets/textures/sample.png",
+			sample_image,
 		)
 		uvTextureView = wgpu.TextureCreateView(uvTexture)
 
@@ -628,7 +645,7 @@ game :: proc() {
 		)
 
 		create_depth_texture()
-	
+
 		pipelines["test"] = wgpu.DeviceCreateRenderPipeline(
 			state.device,
 			&wgpu.RenderPipelineDescriptor{
@@ -718,7 +735,7 @@ game :: proc() {
 
 		display_game_state()
 
-		os_run(&state.os)
+		os_run()
 	}
 }
 
@@ -756,7 +773,7 @@ create_depth_texture :: proc(){
 resize :: proc "c" () {
 	context = state.ctx
 
-	state.config.width, state.config.height = os_get_render_bounds(&state.os)
+	state.config.width, state.config.height = os_get_render_bounds()
 
 	projectionMatrix = la.matrix4_perspective(
 		2 * math.PI / 5,
@@ -825,15 +842,15 @@ frame :: proc "c" (dt: f32) {
 				depthSlice = wgpu.DEPTH_SLICE_UNDEFINED,
 				clearValue = {0.2, 0.2, 0.2, 1},
 			},
-			depthStencilAttachment = &{
+			depthStencilAttachment = &wgpu.RenderPassDepthStencilAttachment {
 				view = depthTextureView,
 				depthClearValue = 1.0,
 				depthLoadOp = .Clear,
 				depthStoreOp = .Store,
 				depthReadOnly = false,
 				stencilClearValue = 0,
-				stencilLoadOp = .Clear,
-				stencilStoreOp = .Store,
+				stencilLoadOp = .Undefined,
+				stencilStoreOp = .Undefined,
 				stencilReadOnly = true,
 			},
 		},

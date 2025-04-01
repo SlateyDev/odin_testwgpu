@@ -1,1 +1,4 @@
 /build
+web/*.wasm
+web/*.js
+!web/wgpu_fixed.js
