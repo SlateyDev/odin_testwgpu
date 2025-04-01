@@ -14,6 +14,7 @@ import mu   "vendor:microui"
 import "vendor:wgpu"
 
 _ :: png
+_ :: cgltf
 
 WGPU_LOGGING :: false
 
@@ -158,11 +159,20 @@ gameObject1 := MeshInstance {
 	mesh = "cube",
 }
 
-gameObject2 := MeshInstance {
-	translation = {2, -2, 0},
-	rotation    = la.quaternion_from_euler_angles_f32(0, 0, 0, la.Euler_Angle_Order.ZYX),
-	scale       = {10, 10, 10},
-	mesh = "duck",
+when ODIN_OS != .JS {
+	gameObject2 := MeshInstance {
+		translation = {2, -2, 0},
+		rotation    = la.quaternion_from_euler_angles_f32(0, 0, 0, la.Euler_Angle_Order.ZYX),
+		scale       = {10, 10, 10},
+		mesh = "duck",
+	}
+} else {
+	gameObject2 := MeshInstance {
+		translation = {2, -2, 0},
+		rotation    = la.quaternion_from_euler_angles_f32(0, 0, 0, la.Euler_Angle_Order.ZYX),
+		scale       = {1, 1, 1},
+		mesh = "cube",
+	}	
 }
 
 gameObject3 := MeshInstance {
@@ -254,24 +264,24 @@ game :: proc() {
 
 	os_init()
 
-	// if WGPU_LOGGING {
-	// 	wgpu.SetLogLevel(wgpu.LogLevel.Debug)
-	// 	wgpu.SetLogCallback(proc "c" (wgpulevel: wgpu.LogLevel, message: string, user: rawptr) {
-	// 		context = state.ctx
-	// 		logger := context.logger
-	// 		if logger.procedure == nil {
-	// 			return
-	// 		}
+	if WGPU_LOGGING {
+		// wgpu.SetLogLevel(wgpu.LogLevel.Debug)
+		// wgpu.SetLogCallback(proc "c" (wgpulevel: wgpu.LogLevel, message: string, user: rawptr) {
+		// 	context = state.ctx
+		// 	logger := context.logger
+		// 	if logger.procedure == nil {
+		// 		return
+		// 	}
 
-	// 		level := wgpu.ConvertLogLevel(wgpulevel)
-	// 		if level < logger.lowest_level {
-	// 			return
-	// 		}
+		// 	level := wgpu.ConvertLogLevel(wgpulevel)
+		// 	if level < logger.lowest_level {
+		// 		return
+		// 	}
 
-	// 		smessage := strings.concatenate({"[nais][wgpu]: ", string(message)}, context.temp_allocator)
-	// 		logger.procedure(logger.data, level, smessage, logger.options, {})
-	// 	}, nil)
-	// }
+		// 	smessage := strings.concatenate({"[nais][wgpu]: ", string(message)}, context.temp_allocator)
+		// 	logger.procedure(logger.data, level, smessage, logger.options, {})
+		// }, nil)
+	}
 
 	state.instance = wgpu.CreateInstance(nil/*&wgpu.InstanceDescriptor{nextInChain = &wgpu.InstanceExtras{sType = .InstanceExtras, backends = {.Vulkan}, flags = wgpu.InstanceFlags_Default}}*/)
 	if state.instance == nil {
@@ -366,7 +376,7 @@ game :: proc() {
 		meshes["plane"] = createMeshFromData(&plane_vertex_data, &plane_index_data)
 
 		//currently only supporting - position: vec3, texcoord: vec2, color: vec4 (optional), with an index buffer
-		{
+		when ODIN_OS != .JS {
 			cgltf_options : cgltf.options
 			data, result := cgltf.parse_file(cgltf_options, "./assets/rubber_duck_toy_1k.gltf")
 			if result != .success {
@@ -547,7 +557,7 @@ game :: proc() {
 				),
 			},
 		)
-		defer wgpu.BindGroupRelease(state.storage_bind_group)
+		// defer wgpu.BindGroupRelease(state.storage_bind_group)
 
 		sample_image, _ := image.load_from_bytes(#load("./assets/textures/sample.png"))
 		defer image.destroy(sample_image)
@@ -617,7 +627,7 @@ game :: proc() {
 				),
 			},
 		)
-		defer wgpu.BindGroupRelease(samplerBindGroup)
+		// defer wgpu.BindGroupRelease(samplerBindGroup)
 		
 		pipelineLayouts["default"] = wgpu.DeviceCreatePipelineLayout(
 			state.device,
@@ -633,6 +643,30 @@ game :: proc() {
 		)
 
 		create_depth_texture()
+
+		when ODIN_OS != .JS {
+			depthStencilState := &wgpu.DepthStencilState{
+				depthCompare = .Less,
+				stencilReadMask = 0,
+				stencilWriteMask = 0,
+				depthWriteEnabled = .True,
+				format = DEPTH_FORMAT,
+				stencilFront = {
+					compare = .Always,
+					failOp = .Keep,
+					depthFailOp = .Keep,
+					passOp = .Keep,
+				},
+				stencilBack = {
+					compare = .Always,
+					failOp = .Keep,
+					depthFailOp = .Keep,
+					passOp = .Keep,
+				},
+			}
+		} else {
+			depthStencilState : ^wgpu.DepthStencilState = nil
+		}
 	
 		pipelines["test"] = wgpu.DeviceCreateRenderPipeline(
 			state.device,
@@ -694,25 +728,7 @@ game :: proc() {
 				},
 				primitive = {topology = .TriangleList, cullMode = .Back, frontFace = .CCW},
 				multisample = {count = 1, mask = 0xFFFFFFFF},
-				depthStencil = &wgpu.DepthStencilState{
-					depthCompare = .Less,
-					stencilReadMask = 0,
-					stencilWriteMask = 0,
-					depthWriteEnabled = .True,
-					format = DEPTH_FORMAT,
-					stencilFront = {
-						compare = .Always,
-						failOp = .Keep,
-						depthFailOp = .Keep,
-						passOp = .Keep,
-					},
-					stencilBack = {
-						compare = .Always,
-						failOp = .Keep,
-						depthFailOp = .Keep,
-						passOp = .Keep,
-					},
-				},
+				depthStencil = depthStencilState,
 			},
 		)
 
@@ -819,6 +835,22 @@ frame :: proc "c" (dt: f32) {
 	command_encoder := wgpu.DeviceCreateCommandEncoder(state.device, nil)
 	defer wgpu.CommandEncoderRelease(command_encoder)
 
+	when ODIN_OS != .JS {
+		depthStencilAttachment := &wgpu.RenderPassDepthStencilAttachment {
+			view = depthTextureView,
+			depthClearValue = 1.0,
+			depthLoadOp = .Clear,
+			depthStoreOp = .Store,
+			depthReadOnly = false,
+			stencilClearValue = 0,
+			stencilLoadOp = .Clear,
+			stencilStoreOp = .Store,
+			stencilReadOnly = true,
+		}
+	} else {
+		depthStencilAttachment : ^wgpu.RenderPassDepthStencilAttachment = nil
+	}
+
 	render_pass_encoder := wgpu.CommandEncoderBeginRenderPass(
 		command_encoder,
 		&wgpu.RenderPassDescriptor{
@@ -830,17 +862,7 @@ frame :: proc "c" (dt: f32) {
 				depthSlice = wgpu.DEPTH_SLICE_UNDEFINED,
 				clearValue = {0.2, 0.2, 0.2, 1},
 			},
-			depthStencilAttachment = &{
-				view = depthTextureView,
-				depthClearValue = 1.0,
-				depthLoadOp = .Clear,
-				depthStoreOp = .Store,
-				depthReadOnly = false,
-				stencilClearValue = 0,
-				stencilLoadOp = .Clear,
-				stencilStoreOp = .Store,
-				stencilReadOnly = true,
-			},
+			depthStencilAttachment = depthStencilAttachment,
 		},
 	)
 

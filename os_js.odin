@@ -40,7 +40,7 @@ step :: proc(dt: f32) -> bool {
     if !os.initialized {
 		return true
 	}
-
+    
 	frame(dt)
 	return true
 }
