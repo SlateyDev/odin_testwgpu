@@ -202,7 +202,7 @@ uvTextureSampler : wgpu.Sampler
 samplerBindGroupLayout : wgpu.BindGroupLayout
 samplerBindGroup : wgpu.BindGroup
 
-DEPTH_FORMAT :: wgpu.TextureFormat.Depth24Plus
+DEPTH_FORMAT :: wgpu.TextureFormat.Depth32Float
 
 main :: proc() {
 	when ODIN_DEBUG {
@@ -359,14 +359,22 @@ game :: proc() {
 
 		state.queue = wgpu.DeviceGetQueue(state.device)
 
-		shader :: string(#load("shader.wgsl"))
-
 		shaders["testShader"] = wgpu.DeviceCreateShaderModule(
 			state.device,
 			&{
 				nextInChain = &wgpu.ShaderSourceWGSL {
 					sType = .ShaderSourceWGSL,
-					code = shader,
+					code = string(#load("shader.wgsl")),
+				},
+			},
+		)
+
+		shaders["shadowCaster"] = wgpu.DeviceCreateShaderModule(
+			state.device,
+			&{
+				nextInChain = &wgpu.ShaderSourceWGSL{
+					sType = .ShaderSourceWGSL,
+					code = string(#load("shadow_caster.wgsl")),
 				},
 			},
 		)
@@ -379,103 +387,106 @@ game :: proc() {
 
 		//currently only supporting - position: vec3, texcoord: vec2, color: vec4 (optional), with an index buffer
 		when ODIN_OS != .JS {
-			cgltf_options : cgltf.options
-			data, result := cgltf.parse_file(cgltf_options, "./assets/rubber_duck_toy_1k.gltf")
-			if result != .success {
-				return
-			}
-			defer cgltf.free(data)
-
-			buffers_result := cgltf.load_buffers(cgltf_options, data, "./assets/rubber_duck_toy_1k.gltf")
-			if buffers_result != .success {
-				return
-			}
-
-			if len(data.meshes) == 0 do return
-			mesh_data := &data.meshes[0]
-			if len(mesh_data.primitives) == 0 do return
-			mesh_primitive := &mesh_data.primitives[0]
-
-			verts : Maybe(uint) = nil
-
-			vert_data : []Vertex
-			defer delete(vert_data)
-
-			// hasColor := false
-
-			for attr in mesh_primitive.attributes {
-				#partial switch attr.type {
-				case .position:
-					if verts == nil {
-						verts = attr.data.count
-						vert_data = make([]Vertex, verts.?)
-					}
-					if verts != attr.data.count do return
-					if attr.data.type != .vec3 do return
-
-					for i in 0..<verts.? {
-						raw_vertex_data : [^]f32 = raw_data(vert_data[i].position[:])
-						read_result := cgltf.accessor_read_float(attr.data, i, raw_vertex_data, 3)
-						if read_result == false {
-							fmt.println("Error while reading gltf")
-							return
-						}
-					}
-				case .texcoord:
-					if verts == nil {
-						verts = attr.data.count
-						vert_data = make([]Vertex, verts.?)
-					}
-					if verts != attr.data.count do return
-					if attr.data.type != .vec2 do return
-					for i in 0..<verts.? {
-						raw_vertex_data : [^]f32 = raw_data(vert_data[i].tex_coords[:])
-						read_result := cgltf.accessor_read_float(attr.data, i, raw_vertex_data, 2)
-						if read_result == false {
-							fmt.println("Error while reading gltf")
-							return
-						}
-					}
-				case .normal:
-					if verts == nil {
-						verts = attr.data.count
-						vert_data = make([]Vertex, verts.?)
-					}
-					if verts != attr.data.count do return
-					if attr.data.type != .vec3 do return
-					for i in 0..<verts.? {
-						raw_vertex_data : [^]f32 = raw_data(vert_data[i].normal[:])
-						read_result := cgltf.accessor_read_float(attr.data, i, raw_vertex_data, 4)
-						if read_result == false {
-							fmt.println("Error while reading gltf")
-							return
-						}
-					}
-				}
-			}
-
-			// if !hasColor {
-			// 	for i in 0..<verts.? {
-			// 		copy(vert_data[i].color[:], []f32{1,1,1,1})
-			// 	}
-			// }
-
-			indices : uint = mesh_primitive.indices.count
-
-			index_data : []u32
-			index_data = make([]u32, indices)
-			defer delete(index_data)
-
-			for i in 0..<indices {
-				raw_index_data : [^]u32 = raw_data(index_data[i:i+1])
-				read_result := cgltf.accessor_read_uint(mesh_primitive.indices, i, raw_index_data, 1)
-				if read_result == false {
-					fmt.println("Error while reading gltf")
+			//TODO: Move into model loader. Have extra scoping here for defers. When above doesn't do scoping also.
+			{
+				cgltf_options : cgltf.options
+				data, result := cgltf.parse_file(cgltf_options, "./assets/rubber_duck_toy_1k.gltf")
+				if result != .success {
 					return
 				}
-			}
+				defer cgltf.free(data)
 
-			meshes["duck"] = createMeshFromData(&vert_data, &index_data)
+				buffers_result := cgltf.load_buffers(cgltf_options, data, "./assets/rubber_duck_toy_1k.gltf")
+				if buffers_result != .success {
+					return
+				}
+
+				if len(data.meshes) == 0 do return
+				mesh_data := &data.meshes[0]
+				if len(mesh_data.primitives) == 0 do return
+				mesh_primitive := &mesh_data.primitives[0]
+
+				verts : Maybe(uint) = nil
+
+				vert_data : []Vertex
+				defer delete(vert_data)
+
+				// hasColor := false
+
+				for attr in mesh_primitive.attributes {
+					#partial switch attr.type {
+					case .position:
+						if verts == nil {
+							verts = attr.data.count
+							vert_data = make([]Vertex, verts.?)
+						}
+						if verts != attr.data.count do return
+						if attr.data.type != .vec3 do return
+
+						for i in 0..<verts.? {
+							raw_vertex_data : [^]f32 = raw_data(vert_data[i].position[:])
+							read_result := cgltf.accessor_read_float(attr.data, i, raw_vertex_data, 3)
+							if read_result == false {
+								fmt.println("Error while reading gltf")
+								return
+							}
+						}
+					case .texcoord:
+						if verts == nil {
+							verts = attr.data.count
+							vert_data = make([]Vertex, verts.?)
+						}
+						if verts != attr.data.count do return
+						if attr.data.type != .vec2 do return
+						for i in 0..<verts.? {
+							raw_vertex_data : [^]f32 = raw_data(vert_data[i].tex_coords[:])
+							read_result := cgltf.accessor_read_float(attr.data, i, raw_vertex_data, 2)
+							if read_result == false {
+								fmt.println("Error while reading gltf")
+								return
+							}
+						}
+					case .normal:
+						if verts == nil {
+							verts = attr.data.count
+							vert_data = make([]Vertex, verts.?)
+						}
+						if verts != attr.data.count do return
+						if attr.data.type != .vec3 do return
+						for i in 0..<verts.? {
+							raw_vertex_data : [^]f32 = raw_data(vert_data[i].normal[:])
+							read_result := cgltf.accessor_read_float(attr.data, i, raw_vertex_data, 4)
+							if read_result == false {
+								fmt.println("Error while reading gltf")
+								return
+							}
+						}
+					}
+				}
+
+				// if !hasColor {
+				// 	for i in 0..<verts.? {
+				// 		copy(vert_data[i].color[:], []f32{1,1,1,1})
+				// 	}
+				// }
+
+				indices : uint = mesh_primitive.indices.count
+
+				index_data : []u32
+				index_data = make([]u32, indices)
+				defer delete(index_data)
+
+				for i in 0..<indices {
+					raw_index_data : [^]u32 = raw_data(index_data[i:i+1])
+					read_result := cgltf.accessor_read_uint(mesh_primitive.indices, i, raw_index_data, 1)
+					if read_result == false {
+						fmt.println("Error while reading gltf")
+						return
+					}
+				}
+
+				meshes["duck"] = createMeshFromData(&vert_data, &index_data)
+			}
 		}
 
 		state.light_uniform_buffer = wgpu.DeviceCreateBuffer(
@@ -728,6 +739,88 @@ game :: proc() {
 			},
 		)
 
+		pipelineLayouts["shadow"] = wgpu.DeviceCreatePipelineLayout(
+			state.device,
+			&{
+				bindGroupLayoutCount = 2,
+				bindGroupLayouts = raw_data(
+					[]wgpu.BindGroupLayout {
+						state.storage_bind_group_layout,
+						samplerBindGroupLayout,
+					},
+				),
+			},
+		)
+
+		pipelines["shadow"] = wgpu.DeviceCreateRenderPipeline(
+			state.device,
+			&wgpu.RenderPipelineDescriptor{
+				label = "Shadow Pipeline",
+				layout = pipelineLayouts["shadow"],
+				vertex = {
+					module = shaders["shadowCaster"],
+					entryPoint = "vs_main",
+					bufferCount = 1,
+					buffers = raw_data(
+						[]wgpu.VertexBufferLayout {
+							{
+								stepMode = .Vertex,
+								arrayStride = size_of(Vertex),
+								attributeCount = 3,
+								attributes = raw_data(
+									[]wgpu.VertexAttribute {
+										{
+											format = .Float32x3,
+											offset = u64(offset_of(Vertex, position)),
+											shaderLocation = 0,
+										},
+										{
+											format = .Float32x2,
+											offset = u64(offset_of(Vertex, tex_coords)),
+											shaderLocation = 1,
+										},
+										{
+											format = .Float32x3,
+											offset = u64(offset_of(Vertex, normal)),
+											shaderLocation = 2,
+										},
+									},
+								),
+							},
+						},
+					),
+				},
+				fragment = &{
+					module = shaders["shadowCaster"],
+					entryPoint = "fs_main",
+					targetCount = 0,
+				},
+				primitive = {topology = .TriangleList, cullMode = .Back, frontFace = .CCW},
+				multisample = {count = 1, mask = 0xFFFFFFFF},
+				depthStencil = &wgpu.DepthStencilState{
+					depthCompare = .Less,
+					// stencilReadMask = 0,
+					// stencilWriteMask = 0,
+					depthWriteEnabled = .True,
+					format = DEPTH_FORMAT,
+					// stencilFront = {
+					// 	compare = .Always,
+					// 	failOp = .Keep,
+					// 	depthFailOp = .Keep,
+					// 	passOp = .Keep,
+					// },
+					// stencilBack = {
+					// 	compare = .Always,
+					// 	failOp = .Keep,
+					// 	depthFailOp = .Keep,
+					// 	passOp = .Keep,
+					// },
+				},
+			},
+		)
+
+		createShadowCamera()
+
 		mu_init()
 
 		init_game_state()
@@ -768,6 +861,81 @@ create_depth_texture :: proc(){
 		dimension = ._2D,
 		format = DEPTH_FORMAT,
 	})
+}
+
+//These dummy's are only needed for passing to a shaders that has the layout but does not actually use the values.
+//This is not currently used so is commented.
+// dummyStorageBuffer : wgpu.Buffer
+// dummyShadowTexture : wgpu.Texture
+shadowBindGroupLayout : wgpu.BindGroupLayout
+shadowBindGroup : wgpu.BindGroup
+shadowDepthTexture : wgpu.Texture
+shadowDepthTextureView : wgpu.TextureView
+
+createShadowCamera :: proc() {
+	// dummyStorageBuffer = wgpu.DeviceCreateBuffer(state.device, &wgpu.BufferDescriptor{
+	// 	size = 4,
+	// 	usage = {.Storage},
+	// })
+
+	// dummyShadowTexture = wgpu.DeviceCreateTexture(state.device, &wgpu.TextureDescriptor{
+	// 	size = wgpu.Extent3D{
+	// 		width = 4,
+	// 		height = 4,
+	// 		depthOrArrayLayers = 1,
+	// 	},
+	// 	usage = {.TextureBinding},
+	// 	format = DEPTH_FORMAT,
+	// 	dimension = ._2D,
+	// 	sampleCount = 1,
+	// 	mipLevelCount = 1,
+	// })
+
+	shadowBindGroupLayout = wgpu.DeviceCreateBindGroupLayout(
+		state.device,
+		&wgpu.BindGroupLayoutDescriptor {
+			label = "Shadow Bind Group Layout",
+			entryCount = 1,
+			entries = raw_data(
+				[]wgpu.BindGroupLayoutEntry {
+					{
+						binding = 0,
+						visibility = {.Vertex, .Fragment},
+						buffer = {type = .Uniform},
+					},
+				},
+			),
+		},
+	)
+	defer wgpu.BindGroupLayoutRelease(state.storage_bind_group_layout)
+
+	shadowBindGroup = wgpu.DeviceCreateBindGroup(state.device, &wgpu.BindGroupDescriptor{
+		layout = shadowBindGroupLayout,
+		entryCount = 1,
+		entries = raw_data(
+			[]wgpu.BindGroupEntry {
+				{
+					binding = 0,
+					buffer = state.uniform_buffer,
+					size = size_of(CameraUniform),
+				},
+			},
+		),
+	})
+
+	shadowDepthTexture = wgpu.DeviceCreateTexture(state.device, &wgpu.TextureDescriptor{
+		size = wgpu.Extent3D{
+			width = 2048,
+			height = 2048,
+			depthOrArrayLayers = 1,
+		},
+		usage = {.RenderAttachment, .TextureBinding},
+		format = DEPTH_FORMAT,
+		dimension = ._2D,
+		sampleCount = 1,
+		mipLevelCount = 1,
+	})
+	shadowDepthTextureView = wgpu.TextureCreateView(shadowDepthTexture)
 }
 
 resize :: proc "c" () {
@@ -827,6 +995,30 @@ frame :: proc "c" (dt: f32) {
 		dimension = ._2D,
 	})
 	defer wgpu.TextureViewRelease(frame)
+
+	shadow_command_encoder := wgpu.DeviceCreateCommandEncoder(state.device, nil)
+	defer wgpu.CommandEncoderRelease(shadow_command_encoder)
+
+	shadow_render_pass_encoder := wgpu.CommandEncoderBeginRenderPass(
+		shadow_command_encoder,
+		&wgpu.RenderPassDescriptor{
+			colorAttachmentCount = 0,
+			depthStencilAttachment = &wgpu.RenderPassDepthStencilAttachment{
+				view = shadowDepthTextureView,
+				depthClearValue = 1.0,
+				depthLoadOp = .Clear,
+				depthStoreOp = .Store,
+			},
+		},
+	)
+	wgpu.RenderPassEncoderSetPipeline(shadow_render_pass_encoder, pipelines["shadow"])
+	// // RENDER EVERYTHING IN SHADOW PASS
+	wgpu.RenderPassEncoderEnd(shadow_render_pass_encoder)
+	wgpu.RenderPassEncoderRelease(shadow_render_pass_encoder)
+	shadow_command_buffer := wgpu.CommandEncoderFinish(shadow_command_encoder, nil)
+	defer wgpu.CommandBufferRelease(shadow_command_buffer)
+	wgpu.QueueSubmit(state.queue, {shadow_command_buffer})
+
 
 	command_encoder := wgpu.DeviceCreateCommandEncoder(state.device, nil)
 	defer wgpu.CommandEncoderRelease(command_encoder)
