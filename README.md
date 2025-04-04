@@ -11,6 +11,11 @@ Below are some features I hope to impleent over time if I continue with the proj
 and don't find something else to fill my spare time. I will continnue to add to the
 list as I think of new things that would be interesting to work on.
 
+Web build: (I currently use python's test web server)
+* `build_web.bat` on windows. I will add a linux shell script at some point also.
+* `python -m http.server -d web`
+* open browser to localhost:8000
+
 ### FEATURES TODO:
 
 - [x] Simple WGPU sample (drawing a triangle)
