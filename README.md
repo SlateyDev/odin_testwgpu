@@ -39,6 +39,9 @@ list as I think of new things that would be interesting to work on.
 - [ ] Cube Map
 - [ ] Skybox
 - [ ] Reflections
+- [ ] Post Processing (Bloom)
+- [ ] Skeletal Animation (Foward Kinematics)
+- [ ] Inverse Kinematics
 - [ ] PBR (Physically Based Rendering)
 - [ ] Collision detection
 - [ ] Ray picking
