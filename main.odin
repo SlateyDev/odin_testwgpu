@@ -542,7 +542,6 @@ game :: proc() {
 				),
 			},
 		)
-		// defer wgpu.BindGroupLayoutRelease(state.storage_bind_group_layout)
 
 		state.storage_bind_group = wgpu.DeviceCreateBindGroup(
 			state.device,
@@ -570,7 +569,6 @@ game :: proc() {
 				),
 			},
 		)
-		// defer wgpu.BindGroupRelease(state.storage_bind_group)
 
 		sample_image, _ := image.load_from_bytes(#load("./assets/textures/sample.png"))
 		defer image.destroy(sample_image)
@@ -625,7 +623,6 @@ game :: proc() {
 				),
 			},
 		)
-		// defer wgpu.BindGroupLayoutRelease(samplerBindGroupLayout)
 
 		samplerBindGroup = wgpu.DeviceCreateBindGroup(
 			state.device,
@@ -640,7 +637,6 @@ game :: proc() {
 				),
 			},
 		)
-		// defer wgpu.BindGroupRelease(samplerBindGroup)
 		
 		pipelineLayouts["default"] = wgpu.DeviceCreatePipelineLayout(
 			state.device,
@@ -1160,6 +1156,14 @@ finish :: proc() {
 	wgpu.BufferRelease(state.light_uniform_buffer)
 	wgpu.BufferRelease(state.uniform_buffer)
 	wgpu.BufferRelease(state.storage_buffer)
+
+	wgpu.BindGroupRelease(state.storage_bind_group)
+	wgpu.BindGroupLayoutRelease(state.storage_bind_group_layout)
+	wgpu.BindGroupRelease(shadowBindGroup)
+	wgpu.BindGroupLayoutRelease(shadowBindGroupLayout)
+	wgpu.BindGroupRelease(samplerBindGroup)
+	wgpu.BindGroupLayoutRelease(samplerBindGroupLayout)
+
 	wgpu.QueueRelease(state.queue)
 	wgpu.DeviceRelease(state.device)
 	wgpu.AdapterRelease(state.adapter)
