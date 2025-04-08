@@ -2,6 +2,7 @@ struct Light {
     position: vec3<f32>,
     color: vec3<f32>,
 }
+
 struct Camera {
     view_proj: mat4x4<f32>,
     view_pos: vec4<f32>,
@@ -18,12 +19,13 @@ struct VertexInput {
     @location(1) tex_coords: vec2<f32>,
     @location(2) normal: vec3<f32>,
 }
+
 struct VertexOutput {
     @builtin(position) position: vec4<f32>,
     @location(0) tex_coords: vec2<f32>,
     @location(1) world_normal: vec3<f32>,
     @location(2) world_position: vec3<f32>,
-};
+}
 
 @vertex
 fn vs_main(
@@ -40,6 +42,17 @@ fn vs_main(
 
 @group(1) @binding(0) var mySampler: sampler;
 @group(1) @binding(1) var myTexture: texture_2d<f32>;
+
+@group(2) @binding(0) var shadowMap: texture_depth_2d;
+@group(2) @binding(1) var shadowSampler: sampler_comparison;
+@group(2) @binding(2) var<uniform> lightSpaceMatrix: mat4x4<f32>;
+
+fn calculate_shadow(coord: vec4<f32>) -> f32 {
+    let projCoords = coord.xyz / coord.w;
+    let shadowCoord = projCoords.xy * 0.5 + 0.5;
+    let depth = projCoords.z - 0.005; // Bias to prevent shadow acne
+    return textureSampleCompare(shadowMap, shadowSampler, shadowCoord, depth);
+}
 
 @fragment
 fn fs_main(
@@ -61,9 +74,14 @@ fn fs_main(
     let ambient_strength = 0.1;
     let ambient_color = light.color * ambient_strength;
 
-    let result_color = (ambient_color + diffuse_color + specular_color) * object_color.xyz;
+    var result_color = (ambient_color + diffuse_color + specular_color) * object_color.xyz;
     // return vec4(linear_to_srgb(uv_color.rgb), uv_color.a) * in.color;
     // return vec4(srgb_to_linear(uv_color.rgb), uv_color.a) * in.color;
+
+    // let shadowCoord = lightSpaceMatrix * vec4<f32>(in.world_position, 1.0);
+    // let shadowFactor = calculate_shadow(shadowCoord);
+    // result_color = mix(result_color, vec3<f32>(0.0, 0.0, 0.0), 1.0 - shadowFactor);
+
     return vec4<f32>(result_color, object_color.a);
 }
 
