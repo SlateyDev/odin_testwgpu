@@ -28,6 +28,8 @@ Node3D :: struct {
 
 MeshInstance :: struct {
 	using node3d : Node3D,
+	uniform_buffer: wgpu.Buffer,
+	uniform_bind_group: wgpu.BindGroup,
 	mesh: string,
 }
 
@@ -54,13 +56,12 @@ State :: struct {
 	device:                    wgpu.Device,
 	config:                        wgpu.SurfaceConfiguration,
 	queue:                     wgpu.Queue,
-	uniform_buffer:            wgpu.Buffer,
-	// uniform_bind_group_layout: wgpu.BindGroupLayout,
+	camera_uniform_buffer:     wgpu.Buffer,
+	mesh_bind_group_layout:    wgpu.BindGroupLayout,
 	// uniform_bind_group:        wgpu.BindGroup,
 	light_uniform_buffer:      wgpu.Buffer,
-	storage_buffer:            wgpu.Buffer,
-	storage_bind_group_layout: wgpu.BindGroupLayout,
-	storage_bind_group:        wgpu.BindGroup,
+	scene_bind_group_layout:   wgpu.BindGroupLayout,
+	scene_bind_group:          wgpu.BindGroup,
 }
 
 muState := struct {
@@ -498,7 +499,7 @@ game :: proc() {
 			},
 		)
 
-		state.uniform_buffer = wgpu.DeviceCreateBuffer(
+		state.camera_uniform_buffer = wgpu.DeviceCreateBuffer(
 			state.device,
 			&wgpu.BufferDescriptor {
 				label = "Uniform Buffer",
@@ -507,20 +508,55 @@ game :: proc() {
 			},
 		)
 
-		state.storage_buffer = wgpu.DeviceCreateBuffer(
+		state.mesh_bind_group_layout = wgpu.DeviceCreateBindGroupLayout(
 			state.device,
-			&wgpu.BufferDescriptor {
-				label = "Storage Buffer",
-				usage = {.Storage, .CopyDst},
-				size = u64(size_of(matrix[4, 4]f32) * len(objects)),
+			&wgpu.BindGroupLayoutDescriptor {
+				label = "Uniform Bind Group Layout",
+				entryCount = 1,
+				entries = raw_data(
+					[]wgpu.BindGroupLayoutEntry {
+						{
+							binding = 0,
+							visibility = {.Vertex},
+							buffer = {type = .Uniform},
+						},
+					},
+				),
 			},
 		)
 
-		state.storage_bind_group_layout = wgpu.DeviceCreateBindGroupLayout(
+		for &object in objects {
+			object.uniform_buffer = wgpu.DeviceCreateBuffer(
+				state.device,
+				&wgpu.BufferDescriptor {
+					label = "Mesh Uniform Buffer",
+					usage = {.Uniform, .CopyDst},
+					size = size_of(matrix[4, 4]f32),
+				},
+			)
+			object.uniform_bind_group = wgpu.DeviceCreateBindGroup(
+				state.device,
+				&wgpu.BindGroupDescriptor {
+					layout = state.mesh_bind_group_layout,
+					entryCount = 1,
+					entries = raw_data(
+						[]wgpu.BindGroupEntry {
+							{
+								binding = 0,
+								buffer = object.uniform_buffer,
+								size = size_of(matrix[4, 4]f32),
+							},
+						},
+					),
+				},
+			)
+		}
+
+		state.scene_bind_group_layout = wgpu.DeviceCreateBindGroupLayout(
 			state.device,
 			&wgpu.BindGroupLayoutDescriptor {
-				label = "Bind Group Layout",
-				entryCount = 3,
+				label = "Scene Bind Group Layout",
+				entryCount = 2,
 				entries = raw_data(
 					[]wgpu.BindGroupLayoutEntry {
 						{
@@ -530,11 +566,6 @@ game :: proc() {
 						},
 						{
 							binding = 1,
-							visibility = {.Vertex},
-							buffer = {type = .ReadOnlyStorage},
-						},
-						{
-							binding = 2,
 							visibility = {.Vertex, .Fragment},
 							buffer = {type = .Uniform},
 						},
@@ -543,25 +574,20 @@ game :: proc() {
 			},
 		)
 
-		state.storage_bind_group = wgpu.DeviceCreateBindGroup(
+		state.scene_bind_group = wgpu.DeviceCreateBindGroup(
 			state.device,
 			&wgpu.BindGroupDescriptor {
-				layout = state.storage_bind_group_layout,
-				entryCount = 3,
+				layout = state.scene_bind_group_layout,
+				entryCount = 2,
 				entries = raw_data(
 					[]wgpu.BindGroupEntry {
 						{
 							binding = 0,
-							buffer = state.uniform_buffer,
+							buffer = state.camera_uniform_buffer,
 							size = size_of(CameraUniform),
 						},
 						{
 							binding = 1,
-							buffer = state.storage_buffer,
-							size = u64(size_of(matrix[4, 4]f32) * len(objects)),
-						},
-						{
-							binding = 2,
 							buffer = state.light_uniform_buffer,
 							size = size_of(LightUniform),
 						},
@@ -641,10 +667,11 @@ game :: proc() {
 		pipelineLayouts["default"] = wgpu.DeviceCreatePipelineLayout(
 			state.device,
 			&{
-				bindGroupLayoutCount = 2,
+				bindGroupLayoutCount = 3,
 				bindGroupLayouts = raw_data(
 					[]wgpu.BindGroupLayout {
-						state.storage_bind_group_layout,
+						state.scene_bind_group_layout,
+						state.mesh_bind_group_layout,
 						samplerBindGroupLayout,
 					},
 				),
@@ -738,11 +765,12 @@ game :: proc() {
 		pipelineLayouts["shadow"] = wgpu.DeviceCreatePipelineLayout(
 			state.device,
 			&{
-				bindGroupLayoutCount = 2,
+				bindGroupLayoutCount = 1,
 				bindGroupLayouts = raw_data(
 					[]wgpu.BindGroupLayout {
-						state.storage_bind_group_layout,
-						samplerBindGroupLayout,
+						// state.scene_bind_group_layout,
+						state.mesh_bind_group_layout,
+						// samplerBindGroupLayout,
 					},
 				),
 			},
@@ -911,7 +939,7 @@ createShadowCamera :: proc() {
 			[]wgpu.BindGroupEntry {
 				{
 					binding = 0,
-					buffer = state.uniform_buffer,
+					buffer = state.camera_uniform_buffer,
 					size = size_of(CameraUniform),
 				},
 			},
@@ -1058,8 +1086,8 @@ frame :: proc "c" (dt: f32) {
 	)
 
 	wgpu.RenderPassEncoderSetPipeline(render_pass_encoder, pipelines["test"])
-	wgpu.RenderPassEncoderSetBindGroup(render_pass_encoder, 0, state.storage_bind_group)
-	wgpu.RenderPassEncoderSetBindGroup(render_pass_encoder, 1, samplerBindGroup)
+	wgpu.RenderPassEncoderSetBindGroup(render_pass_encoder, 0, state.scene_bind_group)
+	wgpu.RenderPassEncoderSetBindGroup(render_pass_encoder, 2, samplerBindGroup)
 
 	viewMatrix = la.MATRIX4F32_IDENTITY
 	viewMatrix *= la.matrix4_rotate(flyCamera.pitch, la.VECTOR3F32_X_AXIS)
@@ -1071,11 +1099,13 @@ frame :: proc "c" (dt: f32) {
 		view_proj = transform,
 		view_pos = la.Vector4f32 {flyCamera.position.x, flyCamera.position.y, flyCamera.position.z, 1.0},
 	}
-	wgpu.QueueWriteBuffer(state.queue, state.uniform_buffer, 0, &cameraData, size_of(CameraUniform))
+	wgpu.QueueWriteBuffer(state.queue, state.camera_uniform_buffer, 0, &cameraData, size_of(CameraUniform))
 
 	wgpu.QueueWriteBuffer(state.queue, state.light_uniform_buffer, 0, &directional_light, size_of(LightUniform))
 
 	for &object, object_index in objects {
+		wgpu.RenderPassEncoderSetBindGroup(render_pass_encoder, 1, object.uniform_bind_group)
+
 		mesh := &meshes[object.mesh]
 
 		modelMatrix = la.matrix4_from_trs_f32(
@@ -1083,7 +1113,7 @@ frame :: proc "c" (dt: f32) {
 			object.rotation,
 			object.scale,
 		)
-		wgpu.QueueWriteBuffer(state.queue, state.storage_buffer, u64(size_of(matrix[4, 4]f32) * object_index), &modelMatrix, size_of(transform))
+		wgpu.QueueWriteBuffer(state.queue, object.uniform_buffer, 0, &modelMatrix, size_of(transform))
 	
 		if (mesh.vertices != 0 && mesh.vertexBuffer != nil){
 			wgpu.RenderPassEncoderSetVertexBuffer(
@@ -1146,6 +1176,7 @@ finish :: proc() {
 	wgpu.SamplerRelease(uvTextureSampler)
 	wgpu.TextureViewRelease(uvTextureView)
 	wgpu.TextureRelease(uvTexture)
+	cleanup_objects()
 	cleanup_meshes()
 	cleanup_pipelines()
 	wgpu.TextureViewRelease(depthTextureView)
@@ -1154,11 +1185,10 @@ finish :: proc() {
 	cleanup_shaders()
 	delete(objects)
 	wgpu.BufferRelease(state.light_uniform_buffer)
-	wgpu.BufferRelease(state.uniform_buffer)
-	wgpu.BufferRelease(state.storage_buffer)
+	wgpu.BufferRelease(state.camera_uniform_buffer)
 
-	wgpu.BindGroupRelease(state.storage_bind_group)
-	wgpu.BindGroupLayoutRelease(state.storage_bind_group_layout)
+	wgpu.BindGroupRelease(state.scene_bind_group)
+	wgpu.BindGroupLayoutRelease(state.scene_bind_group_layout)
 	wgpu.BindGroupRelease(shadowBindGroup)
 	wgpu.BindGroupLayoutRelease(shadowBindGroupLayout)
 	wgpu.BindGroupRelease(samplerBindGroup)
@@ -1169,6 +1199,13 @@ finish :: proc() {
 	wgpu.AdapterRelease(state.adapter)
 	wgpu.SurfaceRelease(state.surface)
 	wgpu.InstanceRelease(state.instance)
+}
+
+cleanup_objects :: proc() {
+	for object in objects {
+		wgpu.BindGroupRelease(object.uniform_bind_group)
+		wgpu.BufferRelease(object.uniform_buffer)
+	}
 }
 
 cleanup_meshes :: proc() {

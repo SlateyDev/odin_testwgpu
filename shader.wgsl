@@ -9,12 +9,13 @@ struct Camera {
 }
 
 @group(0) @binding(0) var<uniform> camera: Camera;
-@group(0) @binding(1) var<storage, read> model_matrices: array<mat4x4<f32>>;
-@group(0) @binding(2) var<uniform> light : Light;
+@group(0) @binding(1) var<uniform> light : Light;
+
+@group(1) @binding(0) var<uniform> model_matrix: mat4x4<f32>;
+
 
 struct VertexInput {
     @builtin(vertex_index) in_vertex_index: u32,
-    @builtin(instance_index) instanceIndex: u32,
     @location(0) pos: vec3<f32>,
     @location(1) tex_coords: vec2<f32>,
     @location(2) normal: vec3<f32>,
@@ -33,19 +34,19 @@ fn vs_main(
 ) -> VertexOutput {
     var out: VertexOutput;
     out.tex_coords = model.tex_coords;
-    out.world_normal = normalize(model_matrices[model.instanceIndex] * vec4<f32>(model.normal, 1.0)).xyz;
-    var world_position: vec4<f32> = model_matrices[model.instanceIndex] * vec4<f32>(model.pos, 1.0);
+    out.world_normal = normalize(model_matrix * vec4<f32>(model.normal, 1.0)).xyz;
+    var world_position: vec4<f32> = model_matrix * vec4<f32>(model.pos, 1.0);
     out.world_position = world_position.xyz;
     out.position = camera.view_proj * world_position;
     return out;
 }
 
-@group(1) @binding(0) var mySampler: sampler;
-@group(1) @binding(1) var myTexture: texture_2d<f32>;
+@group(2) @binding(0) var mySampler: sampler;
+@group(2) @binding(1) var myTexture: texture_2d<f32>;
 
-@group(2) @binding(0) var shadowMap: texture_depth_2d;
-@group(2) @binding(1) var shadowSampler: sampler_comparison;
-@group(2) @binding(2) var<uniform> lightSpaceMatrix: mat4x4<f32>;
+@group(3) @binding(0) var shadowMap: texture_depth_2d;
+@group(3) @binding(1) var shadowSampler: sampler_comparison;
+@group(3) @binding(2) var<uniform> lightSpaceMatrix: mat4x4<f32>;
 
 fn calculate_shadow(coord: vec4<f32>) -> f32 {
     let projCoords = coord.xyz / coord.w;
