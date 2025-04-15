@@ -365,7 +365,7 @@ game :: proc() {
 			&{
 				nextInChain = &wgpu.ShaderSourceWGSL {
 					sType = .ShaderSourceWGSL,
-					code = string(#load("shader.wgsl")),
+					code = string(#load("shaders/shader.wgsl")),
 				},
 			},
 		)
@@ -375,7 +375,7 @@ game :: proc() {
 			&{
 				nextInChain = &wgpu.ShaderSourceWGSL{
 					sType = .ShaderSourceWGSL,
-					code = string(#load("shadow_caster.wgsl")),
+					code = string(#load("shaders/shadow_caster.wgsl")),
 				},
 			},
 		)
@@ -1019,6 +1019,45 @@ frame :: proc "c" (dt: f32) {
 	})
 	defer wgpu.TextureViewRelease(frame)
 
+	//Transform objects
+	now := f32(time.duration_seconds(time.since(start_time)))
+	gameObject1.rotation = la.quaternion_from_euler_angles_f32(
+		0,
+		math.sin(now) * 1.2,
+		0,
+		la.Euler_Angle_Order.XYZ,
+	)
+	gameObject2.rotation = la.quaternion_from_euler_angles_f32(
+		math.sin(now) * 1.2,
+		math.cos(now) * 1,
+		0,
+		la.Euler_Angle_Order.XYZ,
+	)
+
+	//Setup matrices and write positions to uniform buffers
+	viewMatrix = la.MATRIX4F32_IDENTITY
+	viewMatrix *= la.matrix4_rotate(flyCamera.pitch, la.VECTOR3F32_X_AXIS)
+	viewMatrix *= la.matrix4_rotate(flyCamera.yaw, la.VECTOR3F32_Y_AXIS)
+	viewMatrix *= la.matrix4_translate(flyCamera.camera.position)
+
+	transform := OPEN_GL_TO_WGPU_MATRIX * projectionMatrix * viewMatrix
+	cameraData := CameraUniform {
+		view_proj = transform,
+		view_pos = la.Vector4f32 {flyCamera.position.x, flyCamera.position.y, flyCamera.position.z, 1.0},
+	}
+
+	wgpu.QueueWriteBuffer(state.queue, state.camera_uniform_buffer, 0, &cameraData, size_of(CameraUniform))
+	wgpu.QueueWriteBuffer(state.queue, state.light_uniform_buffer, 0, &directional_light, size_of(LightUniform))
+	for &object in objects {
+		modelMatrix = la.matrix4_from_trs_f32(
+			object.translation,
+			object.rotation,
+			object.scale,
+		)
+		wgpu.QueueWriteBuffer(state.queue, object.uniform_buffer, 0, &modelMatrix, size_of(transform))
+	}
+
+	//Shadow render pass
 	shadow_command_encoder := wgpu.DeviceCreateCommandEncoder(state.device, nil)
 	defer wgpu.CommandEncoderRelease(shadow_command_encoder)
 
@@ -1036,6 +1075,10 @@ frame :: proc "c" (dt: f32) {
 	)
 	wgpu.RenderPassEncoderSetPipeline(shadow_render_pass_encoder, pipelines["shadow"])
 	// // RENDER EVERYTHING IN SHADOW PASS
+	// wgpu.RenderPassEncoderSetBindGroup(shadow_render_pass_encoder, 0, state.scene_bind_group)
+	// wgpu.RenderPassEncoderSetBindGroup(shadow_render_pass_encoder, 2, samplerBindGroup)
+	// render_objects(shadow_render_pass_encoder)
+
 	wgpu.RenderPassEncoderEnd(shadow_render_pass_encoder)
 	wgpu.RenderPassEncoderRelease(shadow_render_pass_encoder)
 	shadow_command_buffer := wgpu.CommandEncoderFinish(shadow_command_encoder, nil)
@@ -1043,6 +1086,7 @@ frame :: proc "c" (dt: f32) {
 	wgpu.QueueSubmit(state.queue, {shadow_command_buffer})
 
 
+	//Render pass
 	command_encoder := wgpu.DeviceCreateCommandEncoder(state.device, nil)
 	defer wgpu.CommandEncoderRelease(command_encoder)
 
@@ -1071,49 +1115,33 @@ frame :: proc "c" (dt: f32) {
 		},
 	)
 
-	now := f32(time.duration_seconds(time.since(start_time)))
-	gameObject1.rotation = la.quaternion_from_euler_angles_f32(
-		0,
-		math.sin(now) * 1.2,
-		0,
-		la.Euler_Angle_Order.XYZ,
-	)
-	gameObject2.rotation = la.quaternion_from_euler_angles_f32(
-		math.sin(now) * 1.2,
-		math.cos(now) * 1,
-		0,
-		la.Euler_Angle_Order.XYZ,
-	)
-
 	wgpu.RenderPassEncoderSetPipeline(render_pass_encoder, pipelines["test"])
 	wgpu.RenderPassEncoderSetBindGroup(render_pass_encoder, 0, state.scene_bind_group)
 	wgpu.RenderPassEncoderSetBindGroup(render_pass_encoder, 2, samplerBindGroup)
 
-	viewMatrix = la.MATRIX4F32_IDENTITY
-	viewMatrix *= la.matrix4_rotate(flyCamera.pitch, la.VECTOR3F32_X_AXIS)
-	viewMatrix *= la.matrix4_rotate(flyCamera.yaw, la.VECTOR3F32_Y_AXIS)
-	viewMatrix *= la.matrix4_translate(flyCamera.camera.position)
+	render_objects(render_pass_encoder)
 
-	transform := OPEN_GL_TO_WGPU_MATRIX * projectionMatrix * viewMatrix
-	cameraData := CameraUniform {
-		view_proj = transform,
-		view_pos = la.Vector4f32 {flyCamera.position.x, flyCamera.position.y, flyCamera.position.z, 1.0},
-	}
-	wgpu.QueueWriteBuffer(state.queue, state.camera_uniform_buffer, 0, &cameraData, size_of(CameraUniform))
+	wgpu.RenderPassEncoderEnd(render_pass_encoder)
+	wgpu.RenderPassEncoderRelease(render_pass_encoder)
 
-	wgpu.QueueWriteBuffer(state.queue, state.light_uniform_buffer, 0, &directional_light, size_of(LightUniform))
+	command_buffer := wgpu.CommandEncoderFinish(command_encoder, nil)
+	defer wgpu.CommandBufferRelease(command_buffer)
 
+	wgpu.QueueSubmit(state.queue, {command_buffer})
+
+	mu.begin(&mu_ctx)
+    demo_windows(&mu_ctx)
+    mu.end(&mu_ctx)
+    mu_render(frame)
+
+	wgpu.SurfacePresent(state.surface)
+}
+
+render_objects :: proc(render_pass_encoder : wgpu.RenderPassEncoder) {
 	for &object, object_index in objects {
 		wgpu.RenderPassEncoderSetBindGroup(render_pass_encoder, 1, object.uniform_bind_group)
 
 		mesh := &meshes[object.mesh]
-
-		modelMatrix = la.matrix4_from_trs_f32(
-			object.translation,
-			object.rotation,
-			object.scale,
-		)
-		wgpu.QueueWriteBuffer(state.queue, object.uniform_buffer, 0, &modelMatrix, size_of(transform))
 	
 		if (mesh.vertices != 0 && mesh.vertexBuffer != nil){
 			wgpu.RenderPassEncoderSetVertexBuffer(
@@ -1153,21 +1181,6 @@ frame :: proc "c" (dt: f32) {
 			)
 		}
 	}
-
-	wgpu.RenderPassEncoderEnd(render_pass_encoder)
-	wgpu.RenderPassEncoderRelease(render_pass_encoder)
-
-	command_buffer := wgpu.CommandEncoderFinish(command_encoder, nil)
-	defer wgpu.CommandBufferRelease(command_buffer)
-
-	wgpu.QueueSubmit(state.queue, {command_buffer})
-
-	mu.begin(&mu_ctx)
-    demo_windows(&mu_ctx)
-    mu.end(&mu_ctx)
-    mu_render(frame)
-
-	wgpu.SurfacePresent(state.surface)
 }
 
 finish :: proc() {

@@ -157,7 +157,7 @@ mu_init :: proc() {
 	r.module = wgpu.DeviceCreateShaderModule(state.device, &{
 		nextInChain = &wgpu.ShaderSourceWGSL{
 			sType = .ShaderSourceWGSL,
-			code  = string(#load("mu_shader.wgsl")),
+			code  = string(#load("shaders/mu_shader.wgsl")),
 		},
 	})
 
