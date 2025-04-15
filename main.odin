@@ -78,7 +78,21 @@ pipelineLayouts: map[string]wgpu.PipelineLayout
 pipelines: map[string]wgpu.RenderPipeline
 meshes: map[string]Mesh
 
-directional_light := LightUniform {
+directionalLightPosition : [3]f32 = {50, 100, -100}
+directionalLightViewMatrix := la.matrix4_look_at_f32(directionalLightPosition, 0, la.VECTOR3F32_Y_AXIS)
+directionalLightProjectionMatrix := la.matrix_ortho3d_f32(-80, 80, -80, 80, -200, 300)
+directionalLightViewProjMatrix := la.matrix_mul(
+	directionalLightProjectionMatrix,
+	directionalLightViewMatrix,
+)
+
+SceneUniform :: struct {
+	lightViewProjMatrix : la.Matrix4x4f32,
+	cameraViewProjMatrix : la.Matrix4x4f32,
+	lightPos : la.Vector3f32,
+}
+
+point_light := LightUniform {
 	position = {2.0, 2.0, 2.0},
 	color = {1.0, 1.0, 1.0},
 }
@@ -1047,7 +1061,7 @@ frame :: proc "c" (dt: f32) {
 	}
 
 	wgpu.QueueWriteBuffer(state.queue, state.camera_uniform_buffer, 0, &cameraData, size_of(CameraUniform))
-	wgpu.QueueWriteBuffer(state.queue, state.light_uniform_buffer, 0, &directional_light, size_of(LightUniform))
+	wgpu.QueueWriteBuffer(state.queue, state.light_uniform_buffer, 0, &point_light, size_of(LightUniform))
 	for &object in objects {
 		modelMatrix = la.matrix4_from_trs_f32(
 			object.translation,
@@ -1445,9 +1459,9 @@ demo_windows :: proc(ctx: ^mu.Context) {
 		sw := i32(f32(mu.get_current_container(ctx).body.w) * 0.14)
 		mu.layout_row(ctx, {80, sw, sw, sw})
 		mu.label(ctx, "Light")
-		f32_slider(ctx, &directional_light.position.x, -10, 10, 0.1)
-		f32_slider(ctx, &directional_light.position.y, -10, 10, 0.1)
-		f32_slider(ctx, &directional_light.position.z, -10, 10, 0.1)
+		f32_slider(ctx, &point_light.position.x, -10, 10, 0.1)
+		f32_slider(ctx, &point_light.position.y, -10, 10, 0.1)
+		f32_slider(ctx, &point_light.position.z, -10, 10, 0.1)
 
 		mu.label(ctx, "Cube Pos")
 		f32_slider(ctx, &gameObject1.translation.x, -10, 10, 0.1)
