@@ -6,7 +6,7 @@
     "configurations": [
         {
             "name": "Launch - Debug",
-            "type": "cppvsdbg",
+            "type": "lldb",
             "request": "launch",
             "preLaunchTask": "odin: build debug",
             "program": "${workspaceFolder}/build/debug/${workspaceFolderBasename}.exe",
@@ -15,10 +15,13 @@
             "cwd": "${workspaceFolder}",
             "console": "internalConsole",
             "internalConsoleOptions": "openOnSessionStart",
+            "linux": {
+                "program": "${workspaceFolder}/build/debug/${workspaceFolderBasename}",
+            },
         },
         {
             "name": "Launch - Release",
-            "type": "cppvsdbg",
+            "type": "lldb",
             "request": "launch",
             "preLaunchTask": "odin: build release",
             "program": "${workspaceFolder}/build/release/${workspaceFolderBasename}.exe",
@@ -27,6 +30,9 @@
             "cwd": "${workspaceFolder}",
             "console": "internalConsole",
             "internalConsoleOptions": "openOnSessionStart",
+            "linux": {
+                "program": "${workspaceFolder}/build/debug/${workspaceFolderBasename}",
+            },
         },
     ]
 }

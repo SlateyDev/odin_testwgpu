@@ -1224,7 +1224,7 @@ finish :: proc() {
 	wgpu.QueueRelease(state.queue)
 	wgpu.DeviceRelease(state.device)
 	wgpu.AdapterRelease(state.adapter)
-	wgpu.SurfaceRelease(state.surface)
+	// wgpu.SurfaceRelease(state.surface)
 	wgpu.InstanceRelease(state.instance)
 }
 

@@ -46,7 +46,7 @@
                 ],
             },
             "options": {
-                "cwd": "${workspaceFolder}\\build\\debug",
+                "cwd": "${workspaceFolder}/build/debug",
             },
         },
         {
@@ -73,7 +73,7 @@
                 ],
             },
             "options": {
-                "cwd": "${workspaceFolder}\\build\\release",
+                "cwd": "${workspaceFolder}/build/release",
             },
         },
         {

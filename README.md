@@ -16,6 +16,20 @@ Web build: (I currently use python's test web server)
 * `python -m http.server -d web`
 * open browser to localhost:8000
 
+# Building for linux
+Odin does not have some of the default libraries required to run this sample installed by default. Here are the steps I used to get the test running on Linux Mint.
+
+Download https://github.com/gfx-rs/wgpu-native/releases/tag/v24.0.0.2
+These are expected in Odin's `lib` folder under the same name as they are released (just unzipped).
+
+```
+make -C "~/Tools/Odin/vendor/stb/src"
+make -C "~/Tools/Odin/vendor/cgltf/src"
+
+sudo apt-get install libsdl2-dev
+odin run .
+```
+
 ### FEATURES TODO:
 
 - [x] Simple WGPU sample (drawing a triangle)
