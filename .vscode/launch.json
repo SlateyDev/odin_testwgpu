@@ -5,8 +5,8 @@
     "version": "0.2.0",
     "configurations": [
         {
-            "name": "Launch - Debug",
-            "type": "lldb",
+            "name": "(Windows Debug) Launch",
+            "type": "cppvsdbg",
             "request": "launch",
             "preLaunchTask": "odin: build debug",
             "program": "${workspaceFolder}/build/debug/${workspaceFolderBasename}.exe",
@@ -20,8 +20,8 @@
             },
         },
         {
-            "name": "Launch - Release",
-            "type": "lldb",
+            "name": "(Windows Release) Launch",
+            "type": "cppvsdbg",
             "request": "launch",
             "preLaunchTask": "odin: build release",
             "program": "${workspaceFolder}/build/release/${workspaceFolderBasename}.exe",
@@ -33,6 +33,28 @@
             "linux": {
                 "program": "${workspaceFolder}/build/debug/${workspaceFolderBasename}",
             },
+        },
+        {
+            "name": "(Linux Debug) Launch",
+            "type": "lldb",
+            "request": "launch",
+            "preLaunchTask": "odin: build debug",
+            "program": "${workspaceFolder}/build/debug/${workspaceFolderBasename}",
+            "args": [],
+            "cwd": "${workspaceFolder}",
+            "console": "internalConsole",
+            "internalConsoleOptions": "openOnSessionStart",
+        },
+        {
+            "name": "(Linux Debug) Launch",
+            "type": "lldb",
+            "request": "launch",
+            "preLaunchTask": "odin: build release",
+            "program": "${workspaceFolder}/build/release/${workspaceFolderBasename}",
+            "args": [],
+            "cwd": "${workspaceFolder}",
+            "console": "internalConsole",
+            "internalConsoleOptions": "openOnSessionStart",
         },
     ]
 }
