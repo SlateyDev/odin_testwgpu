@@ -46,7 +46,7 @@
             "internalConsoleOptions": "openOnSessionStart",
         },
         {
-            "name": "(Linux Debug) Launch",
+            "name": "(Linux Release) Launch",
             "type": "lldb",
             "request": "launch",
             "preLaunchTask": "odin: build release",

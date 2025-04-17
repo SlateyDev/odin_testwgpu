@@ -23,7 +23,7 @@
         {
             "label": "odin: build debug",
             "group": "build",
-            "dependsOn": "Create build directory - Debug",
+            "dependsOn": "Prepare Build - Debug",
             "type": "process",
             "command": "odin",
             "args": [
@@ -52,7 +52,7 @@
         {
             "label": "odin: build release",
             "group": "build",
-            "dependsOn": "Create build directory - Release",
+            "dependsOn": "Prepare Build - Release",
             "type": "shell",
             "command": "odin",
             "args": [
@@ -77,25 +77,25 @@
             },
         },
         {
-            "label": "Create build directory - Debug",
+            "label": "Prepare Build - Debug",
             "type": "shell",
             "linux": {
                 "command": "mkdir -p ./build/debug"
             },
             "windows": {
                 "command": "cmd",
-                "args": ["/C", "if not exist .\\build\\debug mkdir .\\build\\debug"]
+                "args": ["/C", "prepare_build.bat debug"]
             },
         },
         {
-            "label": "Create build directory - Release",
+            "label": "Prepare Build - Release",
             "type": "shell",
             "linux": {
                 "command": "mkdir -p ./build/release"
             },
             "windows": {
                 "command": "cmd",
-                "args": ["/C", "if not exist .\\build\\release mkdir .\\build\\release"]
+                "args": ["/C", "prepare_build.bat release"]
             }
         },
         {
