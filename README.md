@@ -52,13 +52,13 @@ The ability to use VSCode for build/debug has also been included by selecting th
 - [x] Render using index buffer
 - [x] Simple glTF Model loading (specific structure only)
 - [ ] Improve glTF Model loading
-- [x] Point light
-- [ ] Directional light
+- [x] Directional light (Sun)
+- [ ] Point light
 - [ ] Spot light
 - [x] Flycam
 - [ ] Normal mapping
 - [ ] Frustum culling
-- [ ] Shadow mapping
+- [x] Shadow mapping
 - [ ] Multiple lights
 - [ ] Coloured lights
 - [ ] Render Textures

@@ -34,17 +34,13 @@ MeshInstance :: struct {
 }
 
 LightUniform :: struct {
-	position : [3]f32,
-	// Due to uniforms requiring 16 byte (4 float) spacing, we need to use a padding field here
-	_padding : u32,
-	color : [3]f32,
-	// Due to uniforms requiring 16 byte (4 float) spacing, we need to use a padding field here
-	_padding2 : u32,
+	view_proj: la.Matrix4x4f32,
+	position: la.Vector4f32,
 }
 
 CameraUniform :: struct {
 	view_proj: la.Matrix4x4f32,
-	view_pos: la.Vector4f32,
+	position: la.Vector4f32,
 }
 
 State :: struct {
@@ -56,9 +52,8 @@ State :: struct {
 	device:                    wgpu.Device,
 	config:                        wgpu.SurfaceConfiguration,
 	queue:                     wgpu.Queue,
-	camera_uniform_buffer:     wgpu.Buffer,
+	camera_uniform_buffer:      wgpu.Buffer,
 	mesh_bind_group_layout:    wgpu.BindGroupLayout,
-	// uniform_bind_group:        wgpu.BindGroup,
 	light_uniform_buffer:      wgpu.Buffer,
 	scene_bind_group_layout:   wgpu.BindGroupLayout,
 	scene_bind_group:          wgpu.BindGroup,
@@ -78,23 +73,17 @@ pipelineLayouts: map[string]wgpu.PipelineLayout
 pipelines: map[string]wgpu.RenderPipeline
 meshes: map[string]Mesh
 
-directionalLightPosition : [3]f32 = {50, 100, -100}
-directionalLightViewMatrix := la.matrix4_look_at_f32(directionalLightPosition, 0, la.VECTOR3F32_Y_AXIS)
+directionalLightPosition : [4]f32 = {50, 100, -100, 1}
+directionalLightViewMatrix := la.matrix4_look_at_f32(directionalLightPosition.xyz, 0, la.VECTOR3F32_Y_AXIS)
 directionalLightProjectionMatrix := la.matrix_ortho3d_f32(-80, 80, -80, 80, -200, 300)
 directionalLightViewProjMatrix := la.matrix_mul(
 	directionalLightProjectionMatrix,
 	directionalLightViewMatrix,
 )
 
-SceneUniform :: struct {
-	lightViewProjMatrix : la.Matrix4x4f32,
-	cameraViewProjMatrix : la.Matrix4x4f32,
-	lightPos : la.Vector3f32,
-}
-
-point_light := LightUniform {
-	position = {2.0, 2.0, 2.0},
-	color = {1.0, 1.0, 1.0},
+directional_light := LightUniform {
+	view_proj = directionalLightViewProjMatrix,
+	position = directionalLightPosition,
 }
 
 objects: [dynamic]^MeshInstance
@@ -216,6 +205,9 @@ uvTextureView : wgpu.TextureView
 uvTextureSampler : wgpu.Sampler
 samplerBindGroupLayout : wgpu.BindGroupLayout
 samplerBindGroup : wgpu.BindGroup
+
+shadowSamplerBindGroupLayout : wgpu.BindGroupLayout
+shadowSamplerBindGroup : wgpu.BindGroup
 
 DEPTH_FORMAT :: wgpu.TextureFormat.Depth32Float
 
@@ -551,6 +543,7 @@ game :: proc() {
 			object.uniform_bind_group = wgpu.DeviceCreateBindGroup(
 				state.device,
 				&wgpu.BindGroupDescriptor {
+					label = "Mesh Bind Group",
 					layout = state.mesh_bind_group_layout,
 					entryCount = 1,
 					entries = raw_data(
@@ -591,6 +584,7 @@ game :: proc() {
 		state.scene_bind_group = wgpu.DeviceCreateBindGroup(
 			state.device,
 			&wgpu.BindGroupDescriptor {
+				label = "Scene Bind Group",
 				layout = state.scene_bind_group_layout,
 				entryCount = 2,
 				entries = raw_data(
@@ -646,17 +640,17 @@ game :: proc() {
 						{
 							binding = 0,
 							visibility = { .Fragment },
-							sampler = {
-								type = .Filtering,
+							texture = {
+								sampleType = .Float,
+								viewDimension = ._2D,
+								multisampled = false,
 							},
 						},
 						{
 							binding = 1,
 							visibility = { .Fragment },
-							texture = {
-								sampleType = .Float,
-								viewDimension = ._2D,
-								multisampled = false,
+							sampler = {
+								type = .Filtering,
 							},
 						},
 					},
@@ -671,22 +665,81 @@ game :: proc() {
 				entryCount = 2,
 				entries = raw_data(
 					[]wgpu.BindGroupEntry {
-						{binding = 0, sampler = uvTextureSampler},
-						{binding = 1, textureView = uvTextureView},
+						{binding = 0, textureView = uvTextureView},
+						{binding = 1, sampler = uvTextureSampler},
 					},
 				),
 			},
 		)
-		
+
+		shadowSamplerBindGroupLayout = wgpu.DeviceCreateBindGroupLayout(
+			state.device,
+			&wgpu.BindGroupLayoutDescriptor {
+				label = "Shadow Sampler Bind Group Layout",
+				entryCount = 2,
+				entries = raw_data(
+					[]wgpu.BindGroupLayoutEntry {
+						{
+							binding = 0,
+							visibility = { .Fragment },
+							texture = wgpu.TextureBindingLayout{
+								sampleType = .Depth,
+								viewDimension = ._2D,
+								multisampled = false,
+							},
+						},
+						{
+							binding = 1,
+							visibility = { .Fragment },
+							sampler = wgpu.SamplerBindingLayout{
+								type = .Comparison,
+							},
+						},
+					},
+				),
+			},
+		)
+
+		testSampler := wgpu.DeviceCreateSampler(state.device, &wgpu.SamplerDescriptor{
+			label = "Shadow Sampler",
+			addressModeU = .ClampToEdge,
+			addressModeV = .ClampToEdge,
+			addressModeW = .ClampToEdge,
+			magFilter = .Linear,
+			minFilter = .Linear,
+			mipmapFilter = .Nearest,
+			lodMinClamp = 0.0,
+			lodMaxClamp = 32.0,
+			compare = .Less,
+			maxAnisotropy = 1,
+		})
+
+		createShadowCamera()
+
+		shadowSamplerBindGroup = wgpu.DeviceCreateBindGroup(
+			state.device,
+			&{
+				layout = shadowSamplerBindGroupLayout,
+				entryCount = 2,
+				entries = raw_data(
+					[]wgpu.BindGroupEntry {
+						{binding = 0, textureView = shadowDepthTextureView},
+						{binding = 1, sampler = testSampler},
+					},
+				),
+			},
+		)
+
 		pipelineLayouts["default"] = wgpu.DeviceCreatePipelineLayout(
 			state.device,
 			&{
-				bindGroupLayoutCount = 3,
+				bindGroupLayoutCount = 4,
 				bindGroupLayouts = raw_data(
 					[]wgpu.BindGroupLayout {
 						state.scene_bind_group_layout,
 						state.mesh_bind_group_layout,
 						samplerBindGroupLayout,
+						shadowSamplerBindGroupLayout,
 					},
 				),
 			},
@@ -697,6 +750,7 @@ game :: proc() {
 		pipelines["test"] = wgpu.DeviceCreateRenderPipeline(
 			state.device,
 			&wgpu.RenderPipelineDescriptor{
+				label = "Test Pipeline",
 				layout = pipelineLayouts["default"],
 				vertex = {
 					module = shaders["testShader"],
@@ -779,12 +833,11 @@ game :: proc() {
 		pipelineLayouts["shadow"] = wgpu.DeviceCreatePipelineLayout(
 			state.device,
 			&{
-				bindGroupLayoutCount = 1,
+				bindGroupLayoutCount = 2,
 				bindGroupLayouts = raw_data(
 					[]wgpu.BindGroupLayout {
-						// state.scene_bind_group_layout,
+						state.scene_bind_group_layout,
 						state.mesh_bind_group_layout,
-						// samplerBindGroupLayout,
 					},
 				),
 			},
@@ -804,7 +857,7 @@ game :: proc() {
 							{
 								stepMode = .Vertex,
 								arrayStride = size_of(Vertex),
-								attributeCount = 3,
+								attributeCount = 1,
 								attributes = raw_data(
 									[]wgpu.VertexAttribute {
 										{
@@ -812,52 +865,21 @@ game :: proc() {
 											offset = u64(offset_of(Vertex, position)),
 											shaderLocation = 0,
 										},
-										{
-											format = .Float32x2,
-											offset = u64(offset_of(Vertex, tex_coords)),
-											shaderLocation = 1,
-										},
-										{
-											format = .Float32x3,
-											offset = u64(offset_of(Vertex, normal)),
-											shaderLocation = 2,
-										},
 									},
 								),
 							},
 						},
 					),
 				},
-				fragment = &{
-					module = shaders["shadowCaster"],
-					entryPoint = "fs_main",
-					targetCount = 0,
-				},
 				primitive = {topology = .TriangleList, cullMode = .Back, frontFace = .CCW},
 				multisample = {count = 1, mask = 0xFFFFFFFF},
 				depthStencil = &wgpu.DepthStencilState{
-					depthCompare = .Less,
-					// stencilReadMask = 0,
-					// stencilWriteMask = 0,
 					depthWriteEnabled = .True,
-					format = DEPTH_FORMAT,
-					// stencilFront = {
-					// 	compare = .Always,
-					// 	failOp = .Keep,
-					// 	depthFailOp = .Keep,
-					// 	passOp = .Keep,
-					// },
-					// stencilBack = {
-					// 	compare = .Always,
-					// 	failOp = .Keep,
-					// 	depthFailOp = .Keep,
-					// 	passOp = .Keep,
-					// },
+					depthCompare = .Less,
+					format = .Depth32Float,
 				},
 			},
 		)
-
-		createShadowCamera()
 
 		mu_init()
 
@@ -905,61 +927,10 @@ create_depth_texture :: proc(){
 //This is not currently used so is commented.
 // dummyStorageBuffer : wgpu.Buffer
 // dummyShadowTexture : wgpu.Texture
-shadowBindGroupLayout : wgpu.BindGroupLayout
-shadowBindGroup : wgpu.BindGroup
 shadowDepthTexture : wgpu.Texture
 shadowDepthTextureView : wgpu.TextureView
 
 createShadowCamera :: proc() {
-	// dummyStorageBuffer = wgpu.DeviceCreateBuffer(state.device, &wgpu.BufferDescriptor{
-	// 	size = 4,
-	// 	usage = {.Storage},
-	// })
-
-	// dummyShadowTexture = wgpu.DeviceCreateTexture(state.device, &wgpu.TextureDescriptor{
-	// 	size = wgpu.Extent3D{
-	// 		width = 4,
-	// 		height = 4,
-	// 		depthOrArrayLayers = 1,
-	// 	},
-	// 	usage = {.TextureBinding},
-	// 	format = DEPTH_FORMAT,
-	// 	dimension = ._2D,
-	// 	sampleCount = 1,
-	// 	mipLevelCount = 1,
-	// })
-
-	shadowBindGroupLayout = wgpu.DeviceCreateBindGroupLayout(
-		state.device,
-		&wgpu.BindGroupLayoutDescriptor {
-			label = "Shadow Bind Group Layout",
-			entryCount = 1,
-			entries = raw_data(
-				[]wgpu.BindGroupLayoutEntry {
-					{
-						binding = 0,
-						visibility = {.Vertex, .Fragment},
-						buffer = {type = .Uniform},
-					},
-				},
-			),
-		},
-	)
-
-	shadowBindGroup = wgpu.DeviceCreateBindGroup(state.device, &wgpu.BindGroupDescriptor{
-		layout = shadowBindGroupLayout,
-		entryCount = 1,
-		entries = raw_data(
-			[]wgpu.BindGroupEntry {
-				{
-					binding = 0,
-					buffer = state.camera_uniform_buffer,
-					size = size_of(CameraUniform),
-				},
-			},
-		),
-	})
-
 	shadowDepthTexture = wgpu.DeviceCreateTexture(state.device, &wgpu.TextureDescriptor{
 		size = wgpu.Extent3D{
 			width = 2048,
@@ -1057,11 +1028,11 @@ frame :: proc "c" (dt: f32) {
 	transform := OPEN_GL_TO_WGPU_MATRIX * projectionMatrix * viewMatrix
 	cameraData := CameraUniform {
 		view_proj = transform,
-		view_pos = la.Vector4f32 {flyCamera.position.x, flyCamera.position.y, flyCamera.position.z, 1.0},
+		position = la.Vector4f32 {flyCamera.position.x, flyCamera.position.y, flyCamera.position.z, 1.0},
 	}
 
 	wgpu.QueueWriteBuffer(state.queue, state.camera_uniform_buffer, 0, &cameraData, size_of(CameraUniform))
-	wgpu.QueueWriteBuffer(state.queue, state.light_uniform_buffer, 0, &point_light, size_of(LightUniform))
+	wgpu.QueueWriteBuffer(state.queue, state.light_uniform_buffer, 0, &directional_light, size_of(LightUniform))
 	for &object in objects {
 		modelMatrix = la.matrix4_from_trs_f32(
 			object.translation,
@@ -1088,10 +1059,9 @@ frame :: proc "c" (dt: f32) {
 		},
 	)
 	wgpu.RenderPassEncoderSetPipeline(shadow_render_pass_encoder, pipelines["shadow"])
-	// // RENDER EVERYTHING IN SHADOW PASS
-	// wgpu.RenderPassEncoderSetBindGroup(shadow_render_pass_encoder, 0, state.scene_bind_group)
-	// wgpu.RenderPassEncoderSetBindGroup(shadow_render_pass_encoder, 2, samplerBindGroup)
-	// render_objects(shadow_render_pass_encoder)
+	// RENDER EVERYTHING IN SHADOW PASS
+	wgpu.RenderPassEncoderSetBindGroup(shadow_render_pass_encoder, 0, state.scene_bind_group)
+	render_objects(shadow_render_pass_encoder)
 
 	wgpu.RenderPassEncoderEnd(shadow_render_pass_encoder)
 	wgpu.RenderPassEncoderRelease(shadow_render_pass_encoder)
@@ -1132,6 +1102,7 @@ frame :: proc "c" (dt: f32) {
 	wgpu.RenderPassEncoderSetPipeline(render_pass_encoder, pipelines["test"])
 	wgpu.RenderPassEncoderSetBindGroup(render_pass_encoder, 0, state.scene_bind_group)
 	wgpu.RenderPassEncoderSetBindGroup(render_pass_encoder, 2, samplerBindGroup)
+	wgpu.RenderPassEncoderSetBindGroup(render_pass_encoder, 3, shadowSamplerBindGroup)
 
 	render_objects(render_pass_encoder)
 
@@ -1216,15 +1187,14 @@ finish :: proc() {
 
 	wgpu.BindGroupRelease(state.scene_bind_group)
 	wgpu.BindGroupLayoutRelease(state.scene_bind_group_layout)
-	wgpu.BindGroupRelease(shadowBindGroup)
-	wgpu.BindGroupLayoutRelease(shadowBindGroupLayout)
 	wgpu.BindGroupRelease(samplerBindGroup)
 	wgpu.BindGroupLayoutRelease(samplerBindGroupLayout)
+	wgpu.BindGroupRelease(shadowSamplerBindGroup)
+	wgpu.BindGroupLayoutRelease(shadowSamplerBindGroupLayout)
 
 	wgpu.QueueRelease(state.queue)
 	wgpu.DeviceRelease(state.device)
 	wgpu.AdapterRelease(state.adapter)
-	// wgpu.SurfaceRelease(state.surface)
 	wgpu.InstanceRelease(state.instance)
 }
 
@@ -1458,10 +1428,10 @@ demo_windows :: proc(ctx: ^mu.Context) {
 	if mu.window(ctx, "Scene", {40, 250, 300, 240}) {
 		sw := i32(f32(mu.get_current_container(ctx).body.w) * 0.14)
 		mu.layout_row(ctx, {80, sw, sw, sw})
-		mu.label(ctx, "Light")
-		f32_slider(ctx, &point_light.position.x, -10, 10, 0.1)
-		f32_slider(ctx, &point_light.position.y, -10, 10, 0.1)
-		f32_slider(ctx, &point_light.position.z, -10, 10, 0.1)
+		// mu.label(ctx, "Light")
+		// f32_slider(ctx, &point_light.position.x, -10, 10, 0.1)
+		// f32_slider(ctx, &point_light.position.y, -10, 10, 0.1)
+		// f32_slider(ctx, &point_light.position.z, -10, 10, 0.1)
 
 		mu.label(ctx, "Cube Pos")
 		f32_slider(ctx, &gameObject1.translation.x, -10, 10, 0.1)
