@@ -88,12 +88,16 @@ directional_light := LightUniform {
 
 objects: [dynamic]^MeshInstance
 
-Mesh :: struct {
+Primitive :: struct {
 	materialResourceName: string,
 	vertexBuffer:         wgpu.Buffer,
 	vertices: uint,
 	indexBuffer:		  wgpu.Buffer,
 	indices: uint,
+}
+
+Mesh :: struct {
+	primitives: [dynamic]Primitive,
 }
 
 BUFFER_SIZE :: 16384
@@ -140,14 +144,16 @@ camera_move_right :: proc(camera : ^FlyCamera, delta: f32) {
 	camera.position += delta * la.normalize(la.vector_cross(camera.rotation, la.VECTOR3F32_Y_AXIS))
 }
 
+CAMERA_SPEED :: 0.3
+
 camera_adjust_pitch :: proc(camera : ^FlyCamera, delta : f32) {
    //Clamp to 90 and -90
-   camera.pitch = math.max(-89.0 * la.RAD_PER_DEG, math.min(89.0 * la.RAD_PER_DEG, camera.pitch + delta * la.RAD_PER_DEG))
+   camera.pitch = math.max(-89.0 * la.RAD_PER_DEG, math.min(89.0 * la.RAD_PER_DEG, camera.pitch + delta * la.RAD_PER_DEG * CAMERA_SPEED))
    camera_update_direction(camera)
 }
 
 camera_adjust_yaw :: proc(camera : ^FlyCamera, delta : f32) {
-   camera.yaw += delta * la.RAD_PER_DEG
+   camera.yaw += delta * la.RAD_PER_DEG * CAMERA_SPEED
    camera_update_direction(camera)
 }
 
@@ -242,12 +248,12 @@ main :: proc() {
 	game()
 }
 
-createMeshFromData :: proc(vertex_data : ^[]Vertex, index_data : ^[]u32) -> Mesh {
-	new_mesh := Mesh {
+createPrimitiveFromData :: proc(vertex_data : ^[]Vertex, index_data : ^[]u32) -> Primitive {
+	new_primitive := Primitive {
 		vertices = len(vertex_data^),
 		indices = index_data != nil ? len(index_data^) : 0,
 	}
-	new_mesh.vertexBuffer = wgpu.DeviceCreateBufferWithData(
+	new_primitive.vertexBuffer = wgpu.DeviceCreateBufferWithData(
 		state.device,
 		&wgpu.BufferWithDataDescriptor {
 			label = "Vertex Buffer",
@@ -255,8 +261,8 @@ createMeshFromData :: proc(vertex_data : ^[]Vertex, index_data : ^[]u32) -> Mesh
 		},
 		vertex_data^,
 	)
-	if new_mesh.indices > 0 {
-		new_mesh.indexBuffer = wgpu.DeviceCreateBufferWithData(
+	if new_primitive.indices > 0 {
+		new_primitive.indexBuffer = wgpu.DeviceCreateBufferWithData(
 			state.device,
 			&wgpu.BufferWithDataDescriptor {
 				label = "Index Buffer",
@@ -265,7 +271,7 @@ createMeshFromData :: proc(vertex_data : ^[]Vertex, index_data : ^[]u32) -> Mesh
 			index_data^,
 		)
 	}
-	return new_mesh
+	return new_primitive
 }
 
 game :: proc() {
@@ -386,114 +392,21 @@ game :: proc() {
 			},
 		)
 
-		meshes["cube"] = createMeshFromData(&cube_vertex_data, &cube_index_data)
+		cube_primitives := make([dynamic]Primitive)
+		append(&cube_primitives, createPrimitiveFromData(&cube_vertex_data, &cube_index_data))
+		meshes["cube"] = Mesh{primitives = cube_primitives}
 
-		meshes["triangle"] = createMeshFromData(&triangle_vertex_data, nil)
+		triangle_primitives := make([dynamic]Primitive)
+		append(&triangle_primitives, createPrimitiveFromData(&triangle_vertex_data, nil))
+		meshes["triangle"] = Mesh{primitives = triangle_primitives}
 
-		meshes["plane"] = createMeshFromData(&plane_vertex_data, &plane_index_data)
+		plane_primitives := make([dynamic]Primitive)
+		append(&plane_primitives, createPrimitiveFromData(&plane_vertex_data, &plane_index_data))
+		meshes["plane"] = Mesh{primitives = plane_primitives}
 
 		//currently only supporting - position: vec3, texcoord: vec2, color: vec4 (optional), with an index buffer
 		when ODIN_OS != .JS {
-			//TODO: Move into model loader. Have extra scoping here for defers. When above doesn't do scoping also.
-			{
-				cgltf_options : cgltf.options
-				data, result := cgltf.parse_file(cgltf_options, "./assets/rubber_duck_toy_1k.gltf")
-				if result != .success {
-					return
-				}
-				defer cgltf.free(data)
-
-				buffers_result := cgltf.load_buffers(cgltf_options, data, "./assets/rubber_duck_toy_1k.gltf")
-				if buffers_result != .success {
-					return
-				}
-
-				if len(data.meshes) == 0 do return
-				mesh_data := &data.meshes[0]
-				if len(mesh_data.primitives) == 0 do return
-				mesh_primitive := &mesh_data.primitives[0]
-
-				verts : Maybe(uint) = nil
-
-				vert_data : []Vertex
-				defer delete(vert_data)
-
-				// hasColor := false
-
-				for attr in mesh_primitive.attributes {
-					#partial switch attr.type {
-					case .position:
-						if verts == nil {
-							verts = attr.data.count
-							vert_data = make([]Vertex, verts.?)
-						}
-						if verts != attr.data.count do return
-						if attr.data.type != .vec3 do return
-
-						for i in 0..<verts.? {
-							raw_vertex_data : [^]f32 = raw_data(vert_data[i].position[:])
-							read_result := cgltf.accessor_read_float(attr.data, i, raw_vertex_data, 3)
-							if read_result == false {
-								fmt.println("Error while reading gltf")
-								return
-							}
-						}
-					case .texcoord:
-						if verts == nil {
-							verts = attr.data.count
-							vert_data = make([]Vertex, verts.?)
-						}
-						if verts != attr.data.count do return
-						if attr.data.type != .vec2 do return
-						for i in 0..<verts.? {
-							raw_vertex_data : [^]f32 = raw_data(vert_data[i].tex_coords[:])
-							read_result := cgltf.accessor_read_float(attr.data, i, raw_vertex_data, 2)
-							if read_result == false {
-								fmt.println("Error while reading gltf")
-								return
-							}
-						}
-					case .normal:
-						if verts == nil {
-							verts = attr.data.count
-							vert_data = make([]Vertex, verts.?)
-						}
-						if verts != attr.data.count do return
-						if attr.data.type != .vec3 do return
-						for i in 0..<verts.? {
-							raw_vertex_data : [^]f32 = raw_data(vert_data[i].normal[:])
-							read_result := cgltf.accessor_read_float(attr.data, i, raw_vertex_data, 4)
-							if read_result == false {
-								fmt.println("Error while reading gltf")
-								return
-							}
-						}
-					}
-				}
-
-				// if !hasColor {
-				// 	for i in 0..<verts.? {
-				// 		copy(vert_data[i].color[:], []f32{1,1,1,1})
-				// 	}
-				// }
-
-				indices : uint = mesh_primitive.indices.count
-
-				index_data : []u32
-				index_data = make([]u32, indices)
-				defer delete(index_data)
-
-				for i in 0..<indices {
-					raw_index_data : [^]u32 = raw_data(index_data[i:i+1])
-					read_result := cgltf.accessor_read_uint(mesh_primitive.indices, i, raw_index_data, 1)
-					if read_result == false {
-						fmt.println("Error while reading gltf")
-						return
-					}
-				}
-
-				meshes["duck"] = createMeshFromData(&vert_data, &index_data)
-			}
+			meshes["duck"] = load_gltf("./assets/rubber_duck_toy_1k.gltf")
 		}
 
 		state.light_uniform_buffer = wgpu.DeviceCreateBuffer(
@@ -892,6 +805,116 @@ game :: proc() {
 	}
 }
 
+load_gltf :: proc(path: cstring) -> (output: Mesh) {
+	cgltf_options : cgltf.options
+	data, result := cgltf.parse_file(cgltf_options, path)
+	if result != .success {
+		return
+	}
+	defer cgltf.free(data)
+
+	buffers_result := cgltf.load_buffers(cgltf_options, data, path)
+	if buffers_result != .success {
+		return
+	}
+
+	loaded_primitives := make([dynamic]Primitive)
+
+	// for &node in data.nodes {
+	// }
+
+	if len(data.meshes) == 0 do return
+	for &mesh_data in data.meshes {
+		if len(mesh_data.primitives) == 0 do continue
+
+		verts : Maybe(uint) = nil
+
+		vert_data : []Vertex
+		defer delete(vert_data)
+
+		for &primitive in mesh_data.primitives {
+			if len(primitive.attributes) == 0 do continue
+			if primitive.indices == nil do continue
+			if primitive.type != .triangles do continue
+
+			for &attr in primitive.attributes {
+				#partial switch attr.type {
+				case .position:
+					if attr.data.type != .vec3 do return
+
+					if verts == nil {
+						verts = attr.data.count
+						vert_data = make([]Vertex, verts.?)
+					}
+					if verts != attr.data.count do return
+
+					for i in 0..<verts.? {
+						raw_vertex_data : [^]f32 = raw_data(vert_data[i].position[:])
+						read_result := cgltf.accessor_read_float(attr.data, i, raw_vertex_data, 3)
+						if read_result == false {
+							fmt.println("Error while reading gltf")
+							return
+						}
+					}
+				case .texcoord:
+					if attr.data.type != .vec2 do return
+
+					if verts == nil {
+						verts = attr.data.count
+						vert_data = make([]Vertex, verts.?)
+					}
+					if verts != attr.data.count do return
+
+					for i in 0..<verts.? {
+						raw_vertex_data : [^]f32 = raw_data(vert_data[i].tex_coords[:])
+						read_result := cgltf.accessor_read_float(attr.data, i, raw_vertex_data, 2)
+						if read_result == false {
+							fmt.println("Error while reading gltf")
+							return
+						}
+					}
+				case .normal:
+					if attr.data.type != .vec3 do continue
+
+					if verts == nil {
+						verts = attr.data.count
+						vert_data = make([]Vertex, verts.?)
+					}
+					if verts != attr.data.count do continue
+
+					for i in 0..<verts.? {
+						raw_vertex_data : [^]f32 = raw_data(vert_data[i].normal[:])
+						read_result := cgltf.accessor_read_float(attr.data, i, raw_vertex_data, 4)
+						if read_result == false {
+							fmt.println("Error while reading gltf")
+							return
+						}
+					}
+				}
+			}
+
+			indices : uint = primitive.indices.count
+
+			index_data : []u32
+			index_data = make([]u32, indices)
+			defer delete(index_data)
+
+			for i in 0..<indices {
+				raw_index_data : [^]u32 = raw_data(index_data[i:i+1])
+				read_result := cgltf.accessor_read_uint(primitive.indices, i, raw_index_data, 1)
+				if read_result == false {
+					fmt.println("Error while reading gltf")
+					return
+				}
+			}
+
+			append(&loaded_primitives, createPrimitiveFromData(&vert_data, &index_data))
+		}
+	}
+	output = Mesh{primitives = loaded_primitives}
+	return
+}
+
 create_depth_texture :: proc(){
 	if depthTexture != nil do wgpu.TextureRelease(depthTexture)
 	depthTexture = wgpu.DeviceCreateTexture(
@@ -1127,43 +1150,45 @@ render_objects :: proc(render_pass_encoder : wgpu.RenderPassEncoder) {
 		wgpu.RenderPassEncoderSetBindGroup(render_pass_encoder, 1, object.uniform_bind_group)
 
 		mesh := &meshes[object.mesh]
-	
-		if (mesh.vertices != 0 && mesh.vertexBuffer != nil){
-			wgpu.RenderPassEncoderSetVertexBuffer(
-				render_pass_encoder,
-				0,
-				mesh.vertexBuffer,
-				0,
-				u64(mesh.vertices * size_of(Vertex)),
-			)
-		}
-		if (mesh.indices != 0 && mesh.indexBuffer != nil){
-			wgpu.RenderPassEncoderSetIndexBuffer(
-				render_pass_encoder,
-				mesh.indexBuffer,
-				.Uint32,
-				0,
-				u64(mesh.indices * size_of(u32)),
-			)
-		}
 
-		if mesh.indices != 0 && mesh.indexBuffer != nil {
-			wgpu.RenderPassEncoderDrawIndexed(
-				render_pass_encoder,
-				u32(mesh.indices),
-				instanceCount = 1,
-				firstIndex = 0,
-				baseVertex = 0,
-				firstInstance = u32(object_index),
-			)
-		} else {
-			wgpu.RenderPassEncoderDraw(
-				render_pass_encoder,
-				vertexCount = u32(mesh.vertices),
-				instanceCount = 1,
-				firstVertex = 0,
-				firstInstance = u32(object_index),
-			)
+		for &primitive in mesh.primitives {
+			if (primitive.vertices != 0 && primitive.vertexBuffer != nil){
+				wgpu.RenderPassEncoderSetVertexBuffer(
+					render_pass_encoder,
+					0,
+					primitive.vertexBuffer,
+					0,
+					u64(primitive.vertices * size_of(Vertex)),
+				)
+			}
+			if (primitive.indices != 0 && primitive.indexBuffer != nil){
+				wgpu.RenderPassEncoderSetIndexBuffer(
+					render_pass_encoder,
+					primitive.indexBuffer,
+					.Uint32,
+					0,
+					u64(primitive.indices * size_of(u32)),
+				)
+			}
+	
+			if primitive.indices != 0 && primitive.indexBuffer != nil {
+				wgpu.RenderPassEncoderDrawIndexed(
+					render_pass_encoder,
+					u32(primitive.indices),
+					instanceCount = 1,
+					firstIndex = 0,
+					baseVertex = 0,
+					firstInstance = u32(object_index),
+				)
+			} else {
+				wgpu.RenderPassEncoderDraw(
+					render_pass_encoder,
+					vertexCount = u32(primitive.vertices),
+					instanceCount = 1,
+					firstVertex = 0,
+					firstInstance = u32(object_index),
+				)
+			}
 		}
 	}
 }
@@ -1208,12 +1233,16 @@ cleanup_objects :: proc() {
 cleanup_meshes :: proc() {
 	for key in meshes {
 		mesh := &meshes[key]
-		if mesh.vertexBuffer != nil {
-			wgpu.BufferRelease(mesh.vertexBuffer)
+		for &primitive in mesh.primitives {
+			if primitive.vertexBuffer != nil {
+				wgpu.BufferRelease(primitive.vertexBuffer)
+			}
+			if primitive.indexBuffer != nil {
+				wgpu.BufferRelease(primitive.indexBuffer)
+			}
 		}
-		if mesh.indexBuffer != nil {
-			wgpu.BufferRelease(mesh.indexBuffer)
-		}
+
+		delete(mesh.primitives)
 	}
 	delete_map(meshes)
 }

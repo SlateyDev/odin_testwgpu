@@ -64,7 +64,7 @@ fn fs_main(
 
     let object_color = textureSample(myTexture, mySampler, in.tex_coords);
 
-    let ambient_strength = 0.1;
+    let ambient_strength = 0.3;
     let ambient_color = ambient_strength;// * light.color;
 
     var result_color = (ambient_color + diffuse_color + specular_color) * object_color.xyz;
