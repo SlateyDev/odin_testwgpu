@@ -26,6 +26,41 @@ Node3D :: struct {
 	scale:       la.Vector3f32,
 }
 
+UnlitMaterial :: struct {
+	id: uint,
+	base_colour_texture: wgpu.Texture,
+	base_colour_texture_view: wgpu.TextureView,
+	base_colour_sampler: wgpu.Sampler,
+	// transparent: bool,
+	// double_sided: bool,
+	// alpha_cutoff: f32,
+	// depth_write: bool,
+	// depth_compare: wgpu.CompareFunction,
+	// cast_shadows: bool,
+	// additive_blend: bool,
+	bind_group: wgpu.BindGroup,
+}
+
+// PBRMaterial :: struct {
+// 	using unlit: UnlitMaterial,
+// 	normal_texture: wgpu.Texture,
+// 	normal_texture_view: wgpu.TextureView,
+// 	normal_sampler: wgpu.Sampler,
+// 	metallic_factor: f32,
+// 	roughness_factor: f32,
+// 	metallic_roughness_texture: wgpu.Texture,
+// 	metallic_roughness_texture_view: wgpu.TextureView,
+// 	metallic_roughness_sampler: wgpu.Sampler,
+// 	emissive_factor: [3]f32,
+// 	emissive_texture: wgpu.Texture,
+// 	emissive_texture_view: wgpu.TextureView,
+// 	emissive_sampler: wgpu.Sampler,
+// 	occlusion_strength: f32,
+// 	occlusion_texture: wgpu.Texture,
+// 	occlusion_texture_view: wgpu.TextureView,
+// 	occlusion_sampler: wgpu.Sampler,
+// }
+
 MeshInstance :: struct {
 	using node3d : Node3D,
 	uniform_buffer: wgpu.Buffer,
@@ -72,6 +107,8 @@ shaders: map[string]wgpu.ShaderModule
 pipelineLayouts: map[string]wgpu.PipelineLayout
 pipelines: map[string]wgpu.RenderPipeline
 meshes: map[string]Mesh
+
+materials: map[string]UnlitMaterial
 
 directionalLightPosition : [4]f32 = {50, 100, -100, 1}
 directionalLightViewMatrix := la.matrix4_look_at_f32(directionalLightPosition.xyz, 0, la.VECTOR3F32_Y_AXIS)
@@ -206,11 +243,11 @@ state: State
 depthTexture : wgpu.Texture
 depthTextureView : wgpu.TextureView
 
-uvTexture : wgpu.Texture
-uvTextureView : wgpu.TextureView
-uvTextureSampler : wgpu.Sampler
+// uvTexture : wgpu.Texture
+// uvTextureView : wgpu.TextureView
+// uvTextureSampler : wgpu.Sampler
 samplerBindGroupLayout : wgpu.BindGroupLayout
-samplerBindGroup : wgpu.BindGroup
+// samplerBindGroup : wgpu.BindGroup
 
 shadowSamplerBindGroupLayout : wgpu.BindGroupLayout
 shadowSamplerBindGroup : wgpu.BindGroup
@@ -517,32 +554,6 @@ game :: proc() {
 			},
 		)
 
-		sample_image, _ := image.load_from_bytes(#load("./assets/textures/sample.png"))
-		defer image.destroy(sample_image)
-		// Load the image and upload it into a Texture.
-		uvTexture = queue_copy_image_to_texture(
-			state.device,
-			state.queue,
-			sample_image,
-		)
-		uvTextureView = wgpu.TextureCreateView(uvTexture)
-
-		// Create a sampler with linear filtering for smooth interpolation.
-		sampler_descriptor := wgpu.SamplerDescriptor {
-			label          = "Sampler Descriptor",
-			addressModeU = .ClampToEdge,
-			addressModeV = .ClampToEdge,
-			addressModeW = .ClampToEdge,
-			magFilter     = .Linear,
-			minFilter     = .Linear,
-			mipmapFilter  = .Nearest,
-			lodMinClamp  = 0.0,
-			lodMaxClamp  = 32.0,
-			compare        = .Undefined,
-			maxAnisotropy = 1,
-		}
-		uvTextureSampler = wgpu.DeviceCreateSampler(state.device, &sampler_descriptor)
-
 		samplerBindGroupLayout = wgpu.DeviceCreateBindGroupLayout(
 			state.device,
 			&wgpu.BindGroupLayoutDescriptor {
@@ -571,19 +582,49 @@ game :: proc() {
 			},
 		)
 
-		samplerBindGroup = wgpu.DeviceCreateBindGroup(
-			state.device,
-			&{
-				layout = samplerBindGroupLayout,
-				entryCount = 2,
-				entries = raw_data(
-					[]wgpu.BindGroupEntry {
-						{binding = 0, textureView = uvTextureView},
-						{binding = 1, sampler = uvTextureSampler},
-					},
-				),
-			},
-		)
+		{
+			sample_image, _ := image.load_from_bytes(#load("./assets/textures/sample.png"))
+			defer image.destroy(sample_image)
+			// Load the image and upload it into a Texture.
+			uvTexture := queue_copy_image_to_texture(
+				state.device,
+				state.queue,
+				sample_image,
+			)
+			uvTextureView := wgpu.TextureCreateView(uvTexture)
+
+			// Create a sampler with linear filtering for smooth interpolation.
+			sampler_descriptor := wgpu.SamplerDescriptor {
+				label          = "Sampler Descriptor",
+				addressModeU = .ClampToEdge,
+				addressModeV = .ClampToEdge,
+				addressModeW = .ClampToEdge,
+				magFilter     = .Linear,
+				minFilter     = .Linear,
+				mipmapFilter  = .Nearest,
+				lodMinClamp  = 0.0,
+				lodMaxClamp  = 32.0,
+				compare        = .Undefined,
+				maxAnisotropy = 1,
+			}
+			uvTextureSampler := wgpu.DeviceCreateSampler(state.device, &sampler_descriptor)
+
+			samplerBindGroup := wgpu.DeviceCreateBindGroup(
+				state.device,
+				&{
+					layout = samplerBindGroupLayout,
+					entryCount = 2,
+					entries = raw_data(
+						[]wgpu.BindGroupEntry {
+							{binding = 0, textureView = uvTextureView},
+							{binding = 1, sampler = uvTextureSampler},
+						},
+					),
+				},
+			)
+
+			materials["sample.png"] = UnlitMaterial{id = 1, base_colour_texture = uvTexture, base_colour_texture_view = uvTextureView, base_colour_sampler = uvTextureSampler, bind_group = samplerBindGroup}
+		}
 
 		shadowSamplerBindGroupLayout = wgpu.DeviceCreateBindGroupLayout(
 			state.device,
@@ -817,6 +858,9 @@ load_gltf :: proc(path: cstring) -> (output: Mesh) {
 	if buffers_result != .success {
 		return
 	}
+
+	// data.meshes[0].primitives[0].material.pbr_metallic_roughness.base_color_texture.texture.basisu_image
+	// data.meshes[0].primitives[0].material.pbr_metallic_roughness.base_color_texture.texture.sampler
 
 	loaded_primitives := make([dynamic]Primitive)
 
@@ -1124,7 +1168,7 @@ frame :: proc "c" (dt: f32) {
 
 	wgpu.RenderPassEncoderSetPipeline(render_pass_encoder, pipelines["test"])
 	wgpu.RenderPassEncoderSetBindGroup(render_pass_encoder, 0, state.scene_bind_group)
-	wgpu.RenderPassEncoderSetBindGroup(render_pass_encoder, 2, samplerBindGroup)
+	wgpu.RenderPassEncoderSetBindGroup(render_pass_encoder, 2, materials["sample.png"].bind_group)
 	wgpu.RenderPassEncoderSetBindGroup(render_pass_encoder, 3, shadowSamplerBindGroup)
 
 	render_objects(render_pass_encoder)
@@ -1196,9 +1240,16 @@ render_objects :: proc(render_pass_encoder : wgpu.RenderPassEncoder) {
 finish :: proc() {
 	mu_shutdown()
 
-	wgpu.SamplerRelease(uvTextureSampler)
-	wgpu.TextureViewRelease(uvTextureView)
-	wgpu.TextureRelease(uvTexture)
+	// wgpu.SamplerRelease(uvTextureSampler)
+	// wgpu.TextureViewRelease(uvTextureView)
+	// wgpu.TextureRelease(uvTexture)
+	for _, &material in materials {
+		wgpu.SamplerRelease(material.base_colour_sampler)
+		wgpu.TextureViewRelease(material.base_colour_texture_view)
+		wgpu.TextureRelease(material.base_colour_texture)
+		wgpu.BindGroupRelease(material.bind_group)
+	}
+	delete(materials)
 	cleanup_objects()
 	cleanup_meshes()
 	cleanup_pipelines()
@@ -1212,7 +1263,7 @@ finish :: proc() {
 
 	wgpu.BindGroupRelease(state.scene_bind_group)
 	wgpu.BindGroupLayoutRelease(state.scene_bind_group_layout)
-	wgpu.BindGroupRelease(samplerBindGroup)
+	// wgpu.BindGroupRelease(samplerBindGroup)
 	wgpu.BindGroupLayoutRelease(samplerBindGroupLayout)
 	wgpu.BindGroupRelease(shadowSamplerBindGroup)
 	wgpu.BindGroupLayoutRelease(shadowSamplerBindGroupLayout)
