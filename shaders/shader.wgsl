@@ -67,7 +67,7 @@ fn fs_main(
     let ambient_strength = 0.3;
     let ambient_color = ambient_strength;// * light.color;
 
-    var result_color = (ambient_color + diffuse_color + specular_color) * object_color.xyz;
+    var result_color = (ambient_color /*+ diffuse_color + specular_color*/) * object_color.xyz;
 
     let shadowCoord = light.view_proj * vec4<f32>(in.world_position, 1.0);
 
@@ -90,7 +90,7 @@ fn fs_main(
     visibility /= 9.0;
 
     let lambertian_factor = max(dot(normalize(light.pos.xyz - in.world_position), normalize(in.world_normal)), 0.0);
-    let lighting_factor = min(ambient_color + visibility * lambertian_factor, 1.0);
+    let lighting_factor = min(ambient_color + visibility /** lambertian_factor*/, 1.0);
 
     return vec4<f32>(lighting_factor * result_color, object_color.a);
 }

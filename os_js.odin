@@ -42,6 +42,8 @@ step :: proc(dt: f32) -> bool {
 	}
     
 	frame(dt)
+
+	free_all(context.temp_allocator)
 	return true
 }
 

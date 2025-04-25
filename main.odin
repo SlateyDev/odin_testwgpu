@@ -212,7 +212,7 @@ when ODIN_OS != .JS {
 	gameObject2 := MeshInstance {
 		translation = {2, -2, 0},
 		rotation    = la.quaternion_from_euler_angles_f32(0, 0, 0, la.Euler_Angle_Order.ZYX),
-		scale       = {10, 10, 10},
+		scale       = {0.01, 0.01, 0.01},
 		mesh = "duck",
 	}
 } else {
@@ -285,10 +285,12 @@ main :: proc() {
 	game()
 }
 
-createPrimitiveFromData :: proc(vertex_data : ^[]Vertex, index_data : ^[]u32) -> Primitive {
+createPrimitiveFromData :: proc(vertex_data : ^[]Vertex, index_data : ^[]u32, material_key: string) -> Primitive {
+	key := fmt.aprint(material_key)
 	new_primitive := Primitive {
 		vertices = len(vertex_data^),
 		indices = index_data != nil ? len(index_data^) : 0,
+		materialResourceName = key,
 	}
 	new_primitive.vertexBuffer = wgpu.DeviceCreateBufferWithData(
 		state.device,
@@ -388,6 +390,34 @@ game :: proc() {
 		}
 		wgpu.SurfaceConfigure(state.surface, &state.config)
 
+		samplerBindGroupLayout = wgpu.DeviceCreateBindGroupLayout(
+			state.device,
+			&wgpu.BindGroupLayoutDescriptor {
+				label = "Bind Group Layout",
+				entryCount = 2,
+				entries = raw_data(
+					[]wgpu.BindGroupLayoutEntry {
+						{
+							binding = 0,
+							visibility = { .Fragment },
+							texture = {
+								sampleType = .Float,
+								viewDimension = ._2D,
+								multisampled = false,
+							},
+						},
+						{
+							binding = 1,
+							visibility = { .Fragment },
+							sampler = {
+								type = .Filtering,
+							},
+						},
+					},
+				),
+			},
+		)
+
 		projectionMatrix = la.matrix4_perspective(
 			flyCamera.fov,
 			f32(width) / f32(height),
@@ -430,20 +460,20 @@ game :: proc() {
 		)
 
 		cube_primitives := make([dynamic]Primitive)
-		append(&cube_primitives, createPrimitiveFromData(&cube_vertex_data, &cube_index_data))
+		append(&cube_primitives, createPrimitiveFromData(&cube_vertex_data, &cube_index_data, "textures/sample.png"))
 		meshes["cube"] = Mesh{primitives = cube_primitives}
 
 		triangle_primitives := make([dynamic]Primitive)
-		append(&triangle_primitives, createPrimitiveFromData(&triangle_vertex_data, nil))
+		append(&triangle_primitives, createPrimitiveFromData(&triangle_vertex_data, nil, "textures/sample.png"))
 		meshes["triangle"] = Mesh{primitives = triangle_primitives}
 
 		plane_primitives := make([dynamic]Primitive)
-		append(&plane_primitives, createPrimitiveFromData(&plane_vertex_data, &plane_index_data))
+		append(&plane_primitives, createPrimitiveFromData(&plane_vertex_data, &plane_index_data, "textures/sample.png"))
 		meshes["plane"] = Mesh{primitives = plane_primitives}
 
 		//currently only supporting - position: vec3, texcoord: vec2, color: vec4 (optional), with an index buffer
 		when ODIN_OS != .JS {
-			meshes["duck"] = load_gltf("./assets/rubber_duck_toy_1k.gltf")
+			meshes["duck"] = load_gltf("./assets/Duck.gltf")
 		}
 
 		state.light_uniform_buffer = wgpu.DeviceCreateBuffer(
@@ -554,77 +584,7 @@ game :: proc() {
 			},
 		)
 
-		samplerBindGroupLayout = wgpu.DeviceCreateBindGroupLayout(
-			state.device,
-			&wgpu.BindGroupLayoutDescriptor {
-				label = "Bind Group Layout",
-				entryCount = 2,
-				entries = raw_data(
-					[]wgpu.BindGroupLayoutEntry {
-						{
-							binding = 0,
-							visibility = { .Fragment },
-							texture = {
-								sampleType = .Float,
-								viewDimension = ._2D,
-								multisampled = false,
-							},
-						},
-						{
-							binding = 1,
-							visibility = { .Fragment },
-							sampler = {
-								type = .Filtering,
-							},
-						},
-					},
-				),
-			},
-		)
-
-		{
-			sample_image, _ := image.load_from_bytes(#load("./assets/textures/sample.png"))
-			defer image.destroy(sample_image)
-			// Load the image and upload it into a Texture.
-			uvTexture := queue_copy_image_to_texture(
-				state.device,
-				state.queue,
-				sample_image,
-			)
-			uvTextureView := wgpu.TextureCreateView(uvTexture)
-
-			// Create a sampler with linear filtering for smooth interpolation.
-			sampler_descriptor := wgpu.SamplerDescriptor {
-				label          = "Sampler Descriptor",
-				addressModeU = .ClampToEdge,
-				addressModeV = .ClampToEdge,
-				addressModeW = .ClampToEdge,
-				magFilter     = .Linear,
-				minFilter     = .Linear,
-				mipmapFilter  = .Nearest,
-				lodMinClamp  = 0.0,
-				lodMaxClamp  = 32.0,
-				compare        = .Undefined,
-				maxAnisotropy = 1,
-			}
-			uvTextureSampler := wgpu.DeviceCreateSampler(state.device, &sampler_descriptor)
-
-			samplerBindGroup := wgpu.DeviceCreateBindGroup(
-				state.device,
-				&{
-					layout = samplerBindGroupLayout,
-					entryCount = 2,
-					entries = raw_data(
-						[]wgpu.BindGroupEntry {
-							{binding = 0, textureView = uvTextureView},
-							{binding = 1, sampler = uvTextureSampler},
-						},
-					),
-				},
-			)
-
-			materials["sample.png"] = UnlitMaterial{id = 1, base_colour_texture = uvTexture, base_colour_texture_view = uvTextureView, base_colour_sampler = uvTextureSampler, bind_group = samplerBindGroup}
-		}
+		load_image("textures/sample.png")
 
 		shadowSamplerBindGroupLayout = wgpu.DeviceCreateBindGroupLayout(
 			state.device,
@@ -846,6 +806,59 @@ game :: proc() {
 	}
 }
 
+load_image :: proc(path: string) {
+	key := fmt.aprint(path)
+	filename := fmt.ctprintf("./assets/%s", path)
+	fmt.println("Loading texture:", filename)
+	sample_image, image_err := image.load_from_file(string(filename))
+	defer image.destroy(sample_image)
+
+	if image_err != nil {
+		fmt.println("Error loading image: ", image_err)
+		return
+	}
+	// Load the image and upload it into a Texture.
+	texture := queue_copy_image_to_texture(
+		state.device,
+		state.queue,
+		sample_image,
+	)
+	textureView := wgpu.TextureCreateView(texture)
+
+	// Create a sampler with linear filtering for smooth interpolation.
+	sampler_descriptor := wgpu.SamplerDescriptor {
+		label          = "Sampler Descriptor",
+		addressModeU = .ClampToEdge,
+		addressModeV = .ClampToEdge,
+		addressModeW = .ClampToEdge,
+		magFilter     = .Linear,
+		minFilter     = .Linear,
+		mipmapFilter  = .Nearest,
+		lodMinClamp  = 0.0,
+		lodMaxClamp  = 32.0,
+		compare        = .Undefined,
+		maxAnisotropy = 1,
+	}
+	textureSampler := wgpu.DeviceCreateSampler(state.device, &sampler_descriptor)
+
+	samplerBindGroup := wgpu.DeviceCreateBindGroup(
+		state.device,
+		&wgpu.BindGroupDescriptor{
+			label = "Bind Group",
+			layout = samplerBindGroupLayout,
+			entryCount = 2,
+			entries = raw_data(
+				[]wgpu.BindGroupEntry {
+					{binding = 0, textureView = textureView},
+					{binding = 1, sampler = textureSampler},
+				},
+			),
+		},
+	)
+
+	materials[key] = UnlitMaterial{id = 1, base_colour_texture = texture, base_colour_texture_view = textureView, base_colour_sampler = textureSampler, bind_group = samplerBindGroup}
+}
+
 load_gltf :: proc(path: cstring) -> (output: Mesh) {
 	cgltf_options : cgltf.options
 	data, result := cgltf.parse_file(cgltf_options, path)
@@ -866,6 +879,12 @@ load_gltf :: proc(path: cstring) -> (output: Mesh) {
 
 	// for &node in data.nodes {
 	// }
+
+	for &image in data.images {
+		if image.uri == nil do continue
+
+		load_image(string(image.uri))
+	}
 
 	if len(data.meshes) == 0 do return
 	for &mesh_data in data.meshes {
@@ -952,7 +971,7 @@ load_gltf :: proc(path: cstring) -> (output: Mesh) {
 				}
 			}
 
-			append(&loaded_primitives, createPrimitiveFromData(&vert_data, &index_data))
+			append(&loaded_primitives, createPrimitiveFromData(&vert_data, &index_data, string(primitive.material.pbr_metallic_roughness.base_color_texture.texture.image_.uri)))
 		}
 	}
 	output = Mesh{primitives = loaded_primitives}
@@ -1168,7 +1187,6 @@ frame :: proc "c" (dt: f32) {
 
 	wgpu.RenderPassEncoderSetPipeline(render_pass_encoder, pipelines["test"])
 	wgpu.RenderPassEncoderSetBindGroup(render_pass_encoder, 0, state.scene_bind_group)
-	wgpu.RenderPassEncoderSetBindGroup(render_pass_encoder, 2, materials["sample.png"].bind_group)
 	wgpu.RenderPassEncoderSetBindGroup(render_pass_encoder, 3, shadowSamplerBindGroup)
 
 	render_objects(render_pass_encoder)
@@ -1196,6 +1214,8 @@ render_objects :: proc(render_pass_encoder : wgpu.RenderPassEncoder) {
 		mesh := &meshes[object.mesh]
 
 		for &primitive in mesh.primitives {
+			material, ok := materials[primitive.materialResourceName]
+			wgpu.RenderPassEncoderSetBindGroup(render_pass_encoder, 2, material.bind_group)
 			if (primitive.vertices != 0 && primitive.vertexBuffer != nil){
 				wgpu.RenderPassEncoderSetVertexBuffer(
 					render_pass_encoder,

@@ -129,6 +129,8 @@ os_run :: proc() {
 		}
 
 		frame(dt)
+
+		free_all(context.temp_allocator)
 	}
 
 	sdl2.DestroyWindow(os.window)
