@@ -68,6 +68,11 @@ MeshInstance :: struct {
 	mesh: string,
 }
 
+ModelMatrices :: struct {
+	model: la.Matrix4f32,
+	normal: la.Matrix4f32,
+}
+
 LightUniform :: struct {
 	view_proj: la.Matrix4x4f32,
 	position: la.Vector4f32,
@@ -231,7 +236,6 @@ gameObject3 := MeshInstance {
 	mesh = "plane",
 }
 
-modelMatrix := la.MATRIX4F32_IDENTITY
 viewMatrix := la.MATRIX4F32_IDENTITY
 projectionMatrix: la.Matrix4f32
 
@@ -517,7 +521,7 @@ game :: proc() {
 				&wgpu.BufferDescriptor {
 					label = "Mesh Uniform Buffer",
 					usage = {.Uniform, .CopyDst},
-					size = size_of(matrix[4, 4]f32),
+					size = size_of(ModelMatrices),
 				},
 			)
 			object.uniform_bind_group = wgpu.DeviceCreateBindGroup(
@@ -531,7 +535,7 @@ game :: proc() {
 							{
 								binding = 0,
 								buffer = object.uniform_buffer,
-								size = size_of(matrix[4, 4]f32),
+								size = size_of(ModelMatrices),
 							},
 						},
 					),
@@ -1120,12 +1124,17 @@ frame :: proc "c" (dt: f32) {
 	wgpu.QueueWriteBuffer(state.queue, state.camera_uniform_buffer, 0, &cameraData, size_of(CameraUniform))
 	wgpu.QueueWriteBuffer(state.queue, state.light_uniform_buffer, 0, &directional_light, size_of(LightUniform))
 	for &object in objects {
-		modelMatrix = la.matrix4_from_trs_f32(
+		model_matrix := la.matrix4_from_trs_f32(
 			object.translation,
 			object.rotation,
 			object.scale,
 		)
-		wgpu.QueueWriteBuffer(state.queue, object.uniform_buffer, 0, &modelMatrix, size_of(transform))
+		normal_matrix := la.inverse_transpose(model_matrix)
+		model_matrices := ModelMatrices {
+			model = model_matrix,
+			normal = normal_matrix,
+		}
+		wgpu.QueueWriteBuffer(state.queue, object.uniform_buffer, 0, &model_matrices, size_of(ModelMatrices))
 	}
 
 	//Shadow render pass
@@ -1214,7 +1223,7 @@ render_objects :: proc(render_pass_encoder : wgpu.RenderPassEncoder) {
 		mesh := &meshes[object.mesh]
 
 		for &primitive in mesh.primitives {
-			material, ok := materials[primitive.materialResourceName]
+			material := materials[primitive.materialResourceName]
 			wgpu.RenderPassEncoderSetBindGroup(render_pass_encoder, 2, material.bind_group)
 			if (primitive.vertices != 0 && primitive.vertexBuffer != nil){
 				wgpu.RenderPassEncoderSetVertexBuffer(

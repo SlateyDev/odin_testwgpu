@@ -8,9 +8,14 @@ struct Light {
     pos: vec4<f32>,
 }
 
+struct ModelMatrices {
+    model_matrix: mat4x4<f32>,
+    normal_matrix: mat4x4<f32>,
+}
+
 @group(0) @binding(0) var<uniform> camera: Camera;
 @group(0) @binding(1) var<uniform> light: Light;
-@group(1) @binding(0) var<uniform> model_matrix: mat4x4<f32>;
+@group(1) @binding(0) var<uniform> model_matrices: ModelMatrices;
 
 struct VertexInput {
     @builtin(vertex_index) in_vertex_index: u32,
@@ -22,8 +27,9 @@ struct VertexInput {
 struct VertexOutput {
     @builtin(position) position: vec4<f32>,
     @location(0) tex_coords: vec2<f32>,
-    @location(1) world_normal: vec3<f32>,
-    @location(2) world_position: vec3<f32>,
+    @location(1) normal: vec3<f32>,
+    @location(2) world_normal: vec3<f32>,
+    @location(3) world_position: vec3<f32>,
 }
 
 @vertex
@@ -32,8 +38,10 @@ fn vs_main(
 ) -> VertexOutput {
     var out: VertexOutput;
     out.tex_coords = model.tex_coords;
-    out.world_normal = normalize(model_matrix * vec4<f32>(model.normal, 1.0)).xyz;
-    var world_position: vec4<f32> = model_matrix * vec4<f32>(model.pos, 1.0);
+    out.normal = model.normal;
+    out.world_normal = normalize((model_matrices.normal_matrix * vec4<f32>(model.normal, 0.0)).xyz);
+
+    var world_position: vec4<f32> = model_matrices.model_matrix * vec4<f32>(model.pos, 1.0);
     out.world_position = world_position.xyz;
     out.position = camera.view_proj * world_position;
     return out;
@@ -52,7 +60,6 @@ fn fs_main(
     in: VertexOutput,
 ) -> @location(0) vec4<f32> {
     let light_dir = normalize(light.pos.xyz - in.world_position);
-
     let view_dir = normalize(camera.pos.xyz - in.world_position);
     let half_dir = normalize(view_dir + light_dir);
 
@@ -67,7 +74,7 @@ fn fs_main(
     let ambient_strength = 0.3;
     let ambient_color = ambient_strength;// * light.color;
 
-    var result_color = (ambient_color /*+ diffuse_color + specular_color*/) * object_color.xyz;
+    var result_color = (ambient_color + diffuse_color + specular_color) * object_color.xyz;
 
     let shadowCoord = light.view_proj * vec4<f32>(in.world_position, 1.0);
 
@@ -83,14 +90,14 @@ fn fs_main(
 
             visibility += textureSampleCompare(
                 shadowMap, shadowSampler,
-                shadowPos.xy + offset, shadowPos.z - 0.007
+                shadowPos.xy + offset, shadowPos.z - 0.001
             );
         }
     }
     visibility /= 9.0;
 
-    let lambertian_factor = max(dot(normalize(light.pos.xyz - in.world_position), normalize(in.world_normal)), 0.0);
-    let lighting_factor = min(ambient_color + visibility /** lambertian_factor*/, 1.0);
+    let lambertian_factor = max(dot(light_dir, in.world_normal), 0.0);
+    let lighting_factor = min(ambient_color + visibility * lambertian_factor, 1.0);
 
     return vec4<f32>(lighting_factor * result_color, object_color.a);
 }
