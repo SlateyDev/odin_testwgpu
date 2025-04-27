@@ -117,7 +117,7 @@ materials: map[string]UnlitMaterial
 
 directionalLightPosition : [4]f32 = {50, 100, -100, 1}
 directionalLightViewMatrix := la.matrix4_look_at_f32(directionalLightPosition.xyz, 0, la.VECTOR3F32_Y_AXIS)
-directionalLightProjectionMatrix := la.matrix_ortho3d_f32(-80, 80, -80, 80, -200, 300)
+directionalLightProjectionMatrix := la.matrix_ortho3d_f32(-40, 40, -40, 40, -200, 300)
 directionalLightViewProjMatrix := la.matrix_mul(
 	directionalLightProjectionMatrix,
 	directionalLightViewMatrix,
@@ -232,7 +232,7 @@ when ODIN_OS != .JS {
 gameObject3 := MeshInstance {
 	translation = {0, -4, 0},
 	rotation = la.quaternion_from_euler_angles_f32(0, 0, -0.5*la.PI, la.Euler_Angle_Order.ZYX),
-	scale = {10, 10, 10},
+	scale = {40, 40, 40},
 	mesh = "plane",
 }
 

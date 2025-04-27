@@ -90,7 +90,7 @@ fn fs_main(
 
             visibility += textureSampleCompare(
                 shadowMap, shadowSampler,
-                shadowPos.xy + offset, shadowPos.z - 0.001
+                shadowPos.xy + offset, shadowPos.z - 0.0005
             );
         }
     }
