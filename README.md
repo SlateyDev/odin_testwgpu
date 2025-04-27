@@ -50,8 +50,18 @@ The ability to use VSCode for build/debug has also been included by selecting th
 - [x] Texturing
 - [x] Render a cube
 - [x] Render using index buffer
-- [x] Simple glTF Model loading (specific structure only)
-- [ ] Improve glTF Model loading
+- [ ] glTF Model loading
+  - [x] Retrieve vertex positions
+  - [x] Retrieve vertex tex-coords
+  - [x] Retrieve vertex normals
+  - [x] Retrieve indexes
+  - [x] Support base colour texture
+  - [ ] Support child node transforms
+  - [ ] Support materials without textures (shader support?)
+  - [ ] Support normal texture (needs shader support)
+  - [ ] Support metallic/roughness texture (needs shader support)
+  - [ ] Support ambient/occlusion texture (needs shader support)
+  - [ ] Support animation (needs engine support)
 - [x] Directional light (Sun)
 - [ ] Point light
 - [ ] Spot light
