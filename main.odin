@@ -217,7 +217,7 @@ when ODIN_OS != .JS {
 	gameObject2 := MeshInstance {
 		translation = {2, -2, 0},
 		rotation    = la.quaternion_from_euler_angles_f32(0, 0, 0, la.Euler_Angle_Order.ZYX),
-		scale       = {0.01, 0.01, 0.01},
+		scale       = {1, 1, 1},
 		mesh = "duck",
 	}
 } else {
@@ -417,6 +417,70 @@ game :: proc() {
 								type = .Filtering,
 							},
 						},
+						// {
+						// 	binding = 2,
+						// 	visibility = { .Fragment },
+						// 	texture = {
+						// 		sampleType = .Float,
+						// 		viewDimension = ._2D,
+						// 		multisampled = false,
+						// 	},
+						// },
+						// {
+						// 	binding = 3,
+						// 	visibility = { .Fragment },
+						// 	sampler = {
+						// 		type = .Filtering,
+						// 	},
+						// },
+						// {
+						// 	binding = 4,
+						// 	visibility = { .Fragment },
+						// 	texture = {
+						// 		sampleType = .Float,
+						// 		viewDimension = ._2D,
+						// 		multisampled = false,
+						// 	},
+						// },
+						// {
+						// 	binding = 5,
+						// 	visibility = { .Fragment },
+						// 	sampler = {
+						// 		type = .Filtering,
+						// 	},
+						// },
+						// {
+						// 	binding = 6,
+						// 	visibility = { .Fragment },
+						// 	texture = {
+						// 		sampleType = .Float,
+						// 		viewDimension = ._2D,
+						// 		multisampled = false,
+						// 	},
+						// },
+						// {
+						// 	binding = 7,
+						// 	visibility = { .Fragment },
+						// 	sampler = {
+						// 		type = .Filtering,
+						// 	},
+						// },
+						// {
+						// 	binding = 8,
+						// 	visibility = { .Fragment },
+						// 	texture = {
+						// 		sampleType = .Float,
+						// 		viewDimension = ._2D,
+						// 		multisampled = false,
+						// 	},
+						// },
+						// {
+						// 	binding = 9,
+						// 	visibility = { .Fragment },
+						// 	sampler = {
+						// 		type = .Filtering,
+						// 	},
+						// },
 					},
 				),
 			},
@@ -477,7 +541,7 @@ game :: proc() {
 
 		//currently only supporting - position: vec3, texcoord: vec2, color: vec4 (optional), with an index buffer
 		when ODIN_OS != .JS {
-			meshes["duck"] = load_gltf("./assets/Duck.gltf")
+			meshes["duck"] = load_gltf("./assets/SciFiHelmet.gltf")
 		}
 
 		state.light_uniform_buffer = wgpu.DeviceCreateBuffer(
@@ -588,7 +652,28 @@ game :: proc() {
 			},
 		)
 
-		load_image("textures/sample.png")
+		texture, texture_view, sample := load_image("textures/sample.png")
+		material_key := fmt.aprint("textures/sample.png")
+		materials[material_key] = UnlitMaterial{
+			id = 0,
+			base_colour_texture = texture,
+			base_colour_texture_view = texture_view,
+			base_colour_sampler = sample,
+			bind_group = wgpu.DeviceCreateBindGroup(
+				state.device,
+				&wgpu.BindGroupDescriptor{
+					label = "Bind Group",
+					layout = samplerBindGroupLayout,
+					entryCount = 2,
+					entries = raw_data(
+						[]wgpu.BindGroupEntry {
+							{binding = 0, textureView = texture_view},
+							{binding = 1, sampler = sample},
+						},
+					),
+				},
+			),
+		}
 
 		shadowSamplerBindGroupLayout = wgpu.DeviceCreateBindGroupLayout(
 			state.device,
@@ -810,8 +895,21 @@ game :: proc() {
 	}
 }
 
-load_image :: proc(path: string) {
-	key := fmt.aprint(path)
+sampler_descriptor := wgpu.SamplerDescriptor {
+	label          = "Sampler Descriptor",
+	addressModeU = .ClampToEdge,
+	addressModeV = .ClampToEdge,
+	addressModeW = .ClampToEdge,
+	magFilter     = .Linear,
+	minFilter     = .Linear,
+	mipmapFilter  = .Nearest,
+	lodMinClamp  = 0.0,
+	lodMaxClamp  = 32.0,
+	compare        = .Undefined,
+	maxAnisotropy = 1,
+}
+
+load_image :: proc(path: string) -> (texture: wgpu.Texture, texture_view: wgpu.TextureView, sampler: wgpu.Sampler) {
 	filename := fmt.ctprintf("./assets/%s", path)
 	fmt.println("Loading texture:", filename)
 	sample_image, image_err := image.load_from_file(string(filename))
@@ -822,45 +920,41 @@ load_image :: proc(path: string) {
 		return
 	}
 	// Load the image and upload it into a Texture.
-	texture := queue_copy_image_to_texture(
+	texture = queue_copy_image_to_texture(
 		state.device,
 		state.queue,
 		sample_image,
 	)
-	textureView := wgpu.TextureCreateView(texture)
+	texture_view = wgpu.TextureCreateView(texture)
 
 	// Create a sampler with linear filtering for smooth interpolation.
-	sampler_descriptor := wgpu.SamplerDescriptor {
-		label          = "Sampler Descriptor",
-		addressModeU = .ClampToEdge,
-		addressModeV = .ClampToEdge,
-		addressModeW = .ClampToEdge,
-		magFilter     = .Linear,
-		minFilter     = .Linear,
-		mipmapFilter  = .Nearest,
-		lodMinClamp  = 0.0,
-		lodMaxClamp  = 32.0,
-		compare        = .Undefined,
-		maxAnisotropy = 1,
-	}
-	textureSampler := wgpu.DeviceCreateSampler(state.device, &sampler_descriptor)
+	sampler = wgpu.DeviceCreateSampler(state.device, &sampler_descriptor)
 
-	samplerBindGroup := wgpu.DeviceCreateBindGroup(
-		state.device,
-		&wgpu.BindGroupDescriptor{
-			label = "Bind Group",
-			layout = samplerBindGroupLayout,
-			entryCount = 2,
-			entries = raw_data(
-				[]wgpu.BindGroupEntry {
-					{binding = 0, textureView = textureView},
-					{binding = 1, sampler = textureSampler},
-				},
-			),
-		},
-	)
+	// samplerBindGroup := wgpu.DeviceCreateBindGroup(
+	// 	state.device,
+	// 	&wgpu.BindGroupDescriptor{
+	// 		label = "Bind Group",
+	// 		layout = samplerBindGroupLayout,
+	// 		entryCount = 2,
+	// 		entries = raw_data(
+	// 			[]wgpu.BindGroupEntry {
+	// 				{binding = 0, textureView = textureView},
+	// 				{binding = 1, sampler = textureSampler},
+	// 				// {binding = 2, textureView = normalTextureView},
+	// 				// {binding = 3, sampler = normalSampler},
+	// 				// {binding = 4, textureView = metallicRoughnessTextureView},
+	// 				// {binding = 5, sampler = metallicRoughnessSampler},
+	// 				// {binding = 6, textureView = emissiveTextureView},
+	// 				// {binding = 7, sampler = emissiveSampler},
+	// 				// {binding = 8, textureView = occlusionTextureView},
+	// 				// {binding = 9, sampler = occlusionSampler},
+	// 			},
+	// 		),
+	// 	},
+	// )
 
-	materials[key] = UnlitMaterial{id = 1, base_colour_texture = texture, base_colour_texture_view = textureView, base_colour_sampler = textureSampler, bind_group = samplerBindGroup}
+	// materials[key] = UnlitMaterial{id = 1, base_colour_texture = texture, base_colour_texture_view = textureView, base_colour_sampler = textureSampler, bind_group = samplerBindGroup}
+	return
 }
 
 load_gltf :: proc(path: cstring) -> (output: Mesh) {
@@ -884,10 +978,38 @@ load_gltf :: proc(path: cstring) -> (output: Mesh) {
 	// for &node in data.nodes {
 	// }
 
-	for &image in data.images {
-		if image.uri == nil do continue
+	for &material in data.materials {
+		material_key := fmt.aprint(string(material.name))
 
-		load_image(string(image.uri))
+		texture, texture_view, sampler := load_image(string(material.pbr_metallic_roughness.base_color_texture.texture.image_.uri))
+
+		materials[material_key] = UnlitMaterial{
+			base_colour_texture = texture,
+			base_colour_texture_view = texture_view,
+			base_colour_sampler = sampler,
+			bind_group = wgpu.DeviceCreateBindGroup(
+				state.device,
+				&wgpu.BindGroupDescriptor{
+					label = "Bind Group",
+					layout = samplerBindGroupLayout,
+					entryCount = 2,
+					entries = raw_data(
+						[]wgpu.BindGroupEntry {
+							{binding = 0, textureView = texture_view},
+							{binding = 1, sampler = sampler},
+							// {binding = 2, textureView = normalTextureView},
+							// {binding = 3, sampler = normalSampler},
+							// {binding = 4, textureView = metallicRoughnessTextureView},
+							// {binding = 5, sampler = metallicRoughnessSampler},
+							// {binding = 6, textureView = emissiveTextureView},
+							// {binding = 7, sampler = emissiveSampler},
+							// {binding = 8, textureView = occlusionTextureView},
+							// {binding = 9, sampler = occlusionSampler},
+						},
+					),
+				},
+			),
+		}
 	}
 
 	if len(data.meshes) == 0 do return
@@ -975,7 +1097,7 @@ load_gltf :: proc(path: cstring) -> (output: Mesh) {
 				}
 			}
 
-			append(&loaded_primitives, createPrimitiveFromData(&vert_data, &index_data, string(primitive.material.pbr_metallic_roughness.base_color_texture.texture.image_.uri)))
+			append(&loaded_primitives, createPrimitiveFromData(&vert_data, &index_data, string(primitive.material.name)))
 		}
 	}
 	output = Mesh{primitives = loaded_primitives}
@@ -1103,8 +1225,8 @@ frame :: proc "c" (dt: f32) {
 		la.Euler_Angle_Order.XYZ,
 	)
 	gameObject2.rotation = la.quaternion_from_euler_angles_f32(
-		math.sin(now) * 1.2,
-		math.cos(now) * 1,
+		0,
+		now,
 		0,
 		la.Euler_Angle_Order.XYZ,
 	)
@@ -1272,11 +1394,12 @@ finish :: proc() {
 	// wgpu.SamplerRelease(uvTextureSampler)
 	// wgpu.TextureViewRelease(uvTextureView)
 	// wgpu.TextureRelease(uvTexture)
-	for _, &material in materials {
+	for material_key, &material in materials {
 		wgpu.SamplerRelease(material.base_colour_sampler)
 		wgpu.TextureViewRelease(material.base_colour_texture_view)
 		wgpu.TextureRelease(material.base_colour_texture)
 		wgpu.BindGroupRelease(material.bind_group)
+		delete(material_key)
 	}
 	delete(materials)
 	cleanup_objects()
@@ -1314,6 +1437,7 @@ cleanup_meshes :: proc() {
 	for key in meshes {
 		mesh := &meshes[key]
 		for &primitive in mesh.primitives {
+			delete(primitive.materialResourceName)
 			if primitive.vertexBuffer != nil {
 				wgpu.BufferRelease(primitive.vertexBuffer)
 			}
