@@ -957,6 +957,45 @@ load_image :: proc(path: string) -> (texture: wgpu.Texture, texture_view: wgpu.T
 	return
 }
 
+load_gltf_nodes :: proc(nodes: []^cgltf.node, parent_transform: la.Matrix4f32 = la.MATRIX4F32_IDENTITY) {
+	for &node in nodes {
+		fmt.println("Node name: ", string(node.name))
+		translation := node.translation
+		rotation := node.rotation
+		scale := node.scale
+		transform : la.Matrix4f32 = transmute(matrix[4,4]f32)(node.matrix_)
+		if !node.has_matrix {
+			transform = la.matrix4_from_trs_f32(
+				la.Vector3f32{translation.x, translation.y, translation.z},
+				quaternion(x = rotation.x, y = rotation.y, z = rotation.z, w = rotation.w),
+				la.Vector3f32{scale.x, scale.y, scale.z},
+			)
+		}
+
+		node_transform := la.matrix_mul(
+			parent_transform,
+			transform,
+		)
+
+		mesh := node.mesh
+		if mesh == nil do continue
+		fmt.println("Mesh name: ", string(mesh.name))
+		primitives := mesh.primitives
+		if primitives == nil do continue
+		for &primitive in primitives {
+			if primitive.attributes == nil do continue
+			if primitive.indices == nil do continue
+			if primitive.type != .triangles do continue
+		}
+
+		if node.children == nil do continue
+		if len(node.children) == 0 do continue
+
+		load_gltf_nodes(node.children, node_transform)
+	}
+	return
+}
+
 load_gltf :: proc(path: cstring) -> (output: Mesh) {
 	cgltf_options : cgltf.options
 	data, result := cgltf.parse_file(cgltf_options, path)
@@ -975,8 +1014,13 @@ load_gltf :: proc(path: cstring) -> (output: Mesh) {
 
 	loaded_primitives := make([dynamic]Primitive)
 
-	// for &node in data.nodes {
-	// }
+	for &scene in data.scenes {
+		fmt.println("Scene name: ", string(scene.name))
+		if scene.nodes == nil do continue
+		if len(scene.nodes) == 0 do continue
+
+		load_gltf_nodes(scene.nodes)
+	}
 
 	for &material in data.materials {
 		material_key := fmt.aprint(string(material.name))
