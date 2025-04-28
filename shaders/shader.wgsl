@@ -27,9 +27,8 @@ struct VertexInput {
 struct VertexOutput {
     @builtin(position) position: vec4<f32>,
     @location(0) tex_coords: vec2<f32>,
-    @location(1) normal: vec3<f32>,
-    @location(2) world_normal: vec3<f32>,
-    @location(3) world_position: vec3<f32>,
+    @location(1) world_normal: vec3<f32>,
+    @location(2) world_position: vec3<f32>,
 }
 
 @vertex
@@ -38,7 +37,6 @@ fn vs_main(
 ) -> VertexOutput {
     var out: VertexOutput;
     out.tex_coords = model.tex_coords;
-    out.normal = model.normal;
     out.world_normal = normalize((model_matrices.normal_matrix * vec4<f32>(model.normal, 0.0)).xyz);
 
     var world_position: vec4<f32> = model_matrices.model_matrix * vec4<f32>(model.pos, 1.0);
