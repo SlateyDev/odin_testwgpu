@@ -957,7 +957,7 @@ load_image :: proc(path: string) -> (texture: wgpu.Texture, texture_view: wgpu.T
 	return
 }
 
-load_gltf_nodes :: proc(nodes: []^cgltf.node, parent_transform: la.Matrix4f32 = la.MATRIX4F32_IDENTITY) {
+load_gltf_nodes :: proc(loaded_primitives: ^[dynamic]Primitive, nodes: []^cgltf.node, parent_transform: la.Matrix4f32 = la.MATRIX4F32_IDENTITY) {
 	for &node in nodes {
 		fmt.println("Node name: ", string(node.name))
 		translation := node.translation
@@ -1064,12 +1064,12 @@ load_gltf_nodes :: proc(nodes: []^cgltf.node, parent_transform: la.Matrix4f32 = 
 				}
 			}
 
-			// append(&loaded_primitives, createPrimitiveFromData(&vert_data, &index_data, string(primitive.material.name)))
+			append(loaded_primitives, createPrimitiveFromData(&vert_data, &index_data, string(primitive.material.name)))
 		}
 
 		if node.children == nil do continue
 
-		load_gltf_nodes(node.children, node_transform)
+		load_gltf_nodes(loaded_primitives, node.children, node_transform)
 	}
 	return
 }
@@ -1096,7 +1096,7 @@ load_gltf :: proc(path: cstring) -> (output: Mesh) {
 		fmt.println("Scene name: ", string(scene.name))
 		if scene.nodes == nil do continue
 
-		load_gltf_nodes(scene.nodes)
+		load_gltf_nodes(&loaded_primitives, scene.nodes)
 	}
 
 	for &material in data.materials {
@@ -1133,92 +1133,6 @@ load_gltf :: proc(path: cstring) -> (output: Mesh) {
 		}
 	}
 
-	for &mesh_data in data.meshes {
-		if mesh_data.primitives == nil do continue
-
-		verts : Maybe(uint) = nil
-
-		vert_data : []Vertex
-		defer delete(vert_data)
-
-		for &primitive in mesh_data.primitives {
-			if primitive.indices == nil do continue
-			if primitive.type != .triangles do continue
-
-			for &attr in primitive.attributes {
-				#partial switch attr.type {
-				case .position:
-					if attr.data.type != .vec3 do return
-
-					if verts == nil {
-						verts = attr.data.count
-						vert_data = make([]Vertex, verts.?)
-					}
-					if verts != attr.data.count do return
-
-					for i in 0..<verts.? {
-						raw_vertex_data : [^]f32 = raw_data(vert_data[i].position[:])
-						read_result := cgltf.accessor_read_float(attr.data, i, raw_vertex_data, 3)
-						if read_result == false {
-							fmt.println("Error while reading gltf")
-							return
-						}
-					}
-				case .texcoord:
-					if attr.data.type != .vec2 do return
-
-					if verts == nil {
-						verts = attr.data.count
-						vert_data = make([]Vertex, verts.?)
-					}
-					if verts != attr.data.count do return
-
-					for i in 0..<verts.? {
-						raw_vertex_data : [^]f32 = raw_data(vert_data[i].tex_coords[:])
-						read_result := cgltf.accessor_read_float(attr.data, i, raw_vertex_data, 2)
-						if read_result == false {
-							fmt.println("Error while reading gltf")
-							return
-						}
-					}
-				case .normal:
-					if attr.data.type != .vec3 do continue
-
-					if verts == nil {
-						verts = attr.data.count
-						vert_data = make([]Vertex, verts.?)
-					}
-					if verts != attr.data.count do continue
-
-					for i in 0..<verts.? {
-						raw_vertex_data : [^]f32 = raw_data(vert_data[i].normal[:])
-						read_result := cgltf.accessor_read_float(attr.data, i, raw_vertex_data, 4)
-						if read_result == false {
-							fmt.println("Error while reading gltf")
-							return
-						}
-					}
-				}
-			}
-
-			indices : uint = primitive.indices.count
-
-			index_data : []u32
-			index_data = make([]u32, indices)
-			defer delete(index_data)
-
-			for i in 0..<indices {
-				raw_index_data : [^]u32 = raw_data(index_data[i:i+1])
-				read_result := cgltf.accessor_read_uint(primitive.indices, i, raw_index_data, 1)
-				if read_result == false {
-					fmt.println("Error while reading gltf")
-					return
-				}
-			}
-
-			append(&loaded_primitives, createPrimitiveFromData(&vert_data, &index_data, string(primitive.material.name)))
-		}
-	}
 	output = Mesh{primitives = loaded_primitives}
 	return
 }
