@@ -26,6 +26,11 @@ Node3D :: struct {
 	scale:       la.Vector3f32,
 }
 
+Texture :: struct {
+	texture: wgpu.Texture,
+	view: wgpu.TextureView,
+}
+
 UnlitMaterial :: struct {
 	id: uint,
 	base_colour_texture: wgpu.Texture,
@@ -129,6 +134,10 @@ directional_light := LightUniform {
 }
 
 objects: [dynamic]^MeshInstance
+
+blackTexture : Texture
+whiteTexture : Texture
+defaultNormalTexture : Texture
 
 Primitive :: struct {
 	materialResourceName: string,
@@ -286,6 +295,8 @@ main :: proc() {
 	context.logger = log.create_console_logger()
 	defer log.destroy_console_logger(context.logger)
 
+	vtable()
+	
 	game()
 }
 
@@ -393,6 +404,26 @@ game :: proc() {
 			alphaMode   = .Opaque,
 		}
 		wgpu.SurfaceConfigure(state.surface, &state.config)
+
+		state.queue = wgpu.DeviceGetQueue(state.device)
+
+		blackTextureData := texture_from_colour_f32({0, 0, 0, 0})
+		blackTexture = Texture{
+			texture = blackTextureData,
+			view = wgpu.TextureCreateView(blackTextureData),
+		}
+
+		whiteTextureData := texture_from_colour_f32({1, 1, 1, 1})
+		whiteTexture = Texture{
+			texture = whiteTextureData,
+			view = wgpu.TextureCreateView(whiteTextureData),
+		}
+
+		defaultNormalTextureData := texture_from_colour_f32({0.5, 0.5, 1, 0})
+		defaultNormalTexture = Texture{
+			texture = defaultNormalTextureData,
+			view = wgpu.TextureCreateView(defaultNormalTextureData),
+		}
 
 		samplerBindGroupLayout = wgpu.DeviceCreateBindGroupLayout(
 			state.device,
@@ -504,8 +535,6 @@ game :: proc() {
 			&gameObject2,
 			&gameObject3,
 		)
-
-		state.queue = wgpu.DeviceGetQueue(state.device)
 
 		shaders["testShader"] = wgpu.DeviceCreateShaderModule(
 			state.device,
