@@ -26,16 +26,10 @@ Node3D :: struct {
 	scale:       la.Vector3f32,
 }
 
-Texture :: struct {
-	texture: wgpu.Texture,
-	view: wgpu.TextureView,
-}
-
 UnlitMaterial :: struct {
 	id: uint,
 	base_colour_texture: wgpu.Texture,
 	base_colour_texture_view: wgpu.TextureView,
-	base_colour_sampler: wgpu.Sampler,
 	// transparent: bool,
 	// double_sided: bool,
 	// alpha_cutoff: f32,
@@ -135,9 +129,9 @@ directional_light := LightUniform {
 
 objects: [dynamic]^MeshInstance
 
-blackTexture : Texture
-whiteTexture : Texture
-defaultNormalTexture : Texture
+blackTexture : ^EngineTexture
+whiteTexture : ^EngineTexture
+defaultNormalTexture : ^EngineTexture
 
 Primitive :: struct {
 	materialResourceName: string,
@@ -265,6 +259,21 @@ samplerBindGroupLayout : wgpu.BindGroupLayout
 shadowSamplerBindGroupLayout : wgpu.BindGroupLayout
 shadowSamplerBindGroup : wgpu.BindGroup
 
+sampler_descriptor := wgpu.SamplerDescriptor {
+	label          = "Sampler Descriptor",
+	addressModeU = .ClampToEdge,
+	addressModeV = .ClampToEdge,
+	addressModeW = .ClampToEdge,
+	magFilter     = .Linear,
+	minFilter     = .Linear,
+	mipmapFilter  = .Nearest,
+	lodMinClamp  = 0.0,
+	lodMaxClamp  = 32.0,
+	compare        = .Undefined,
+	maxAnisotropy = 1,
+}
+default_sampler: wgpu.Sampler
+
 DEPTH_FORMAT :: wgpu.TextureFormat.Depth32Float
 
 main :: proc() {
@@ -295,8 +304,6 @@ main :: proc() {
 	context.logger = log.create_console_logger()
 	defer log.destroy_console_logger(context.logger)
 
-	vtable()
-	
 	game()
 }
 
@@ -391,6 +398,7 @@ game :: proc() {
 			fmt.panicf("request device failure: [%v] %s", status, message)
 		}
 		state.device = device
+		state.queue = wgpu.DeviceGetQueue(state.device)
 
 		width, height := os_get_render_bounds()
 
@@ -405,25 +413,17 @@ game :: proc() {
 		}
 		wgpu.SurfaceConfigure(state.surface, &state.config)
 
-		state.queue = wgpu.DeviceGetQueue(state.device)
+		// Create a sampler with linear filtering for smooth interpolation.
+		default_sampler = wgpu.DeviceCreateSampler(state.device, &sampler_descriptor)
 
-		blackTextureData := texture_from_colour_f32({0, 0, 0, 0})
-		blackTexture = Texture{
-			texture = blackTextureData,
-			view = wgpu.TextureCreateView(blackTextureData),
-		}
+		// blackTexture = new_EngineTexture()->from_colour_f32({0, 0, 0, 0})
+		// blackTexture->create_view()
 
-		whiteTextureData := texture_from_colour_f32({1, 1, 1, 1})
-		whiteTexture = Texture{
-			texture = whiteTextureData,
-			view = wgpu.TextureCreateView(whiteTextureData),
-		}
+		// whiteTexture = new_EngineTexture()->from_colour_f32({1, 1, 1, 1})
+		// whiteTexture->create_view()
 
-		defaultNormalTextureData := texture_from_colour_f32({0.5, 0.5, 1, 0})
-		defaultNormalTexture = Texture{
-			texture = defaultNormalTextureData,
-			view = wgpu.TextureCreateView(defaultNormalTextureData),
-		}
+		// defaultNormalTexture = new_EngineTexture()->from_colour_f32({0.5, 0.5, 1, 0})
+		// defaultNormalTexture->create_view()
 
 		samplerBindGroupLayout = wgpu.DeviceCreateBindGroupLayout(
 			state.device,
@@ -681,13 +681,12 @@ game :: proc() {
 			},
 		)
 
-		texture, texture_view, sample := load_image("textures/sample.png")
+		texture, texture_view := load_image("textures/sample.png")
 		material_key := fmt.aprint("textures/sample.png")
 		materials[material_key] = UnlitMaterial{
 			id = 0,
 			base_colour_texture = texture,
 			base_colour_texture_view = texture_view,
-			base_colour_sampler = sample,
 			bind_group = wgpu.DeviceCreateBindGroup(
 				state.device,
 				&wgpu.BindGroupDescriptor{
@@ -697,7 +696,7 @@ game :: proc() {
 					entries = raw_data(
 						[]wgpu.BindGroupEntry {
 							{binding = 0, textureView = texture_view},
-							{binding = 1, sampler = sample},
+							{binding = 1, sampler = default_sampler},
 						},
 					),
 				},
@@ -924,21 +923,7 @@ game :: proc() {
 	}
 }
 
-sampler_descriptor := wgpu.SamplerDescriptor {
-	label          = "Sampler Descriptor",
-	addressModeU = .ClampToEdge,
-	addressModeV = .ClampToEdge,
-	addressModeW = .ClampToEdge,
-	magFilter     = .Linear,
-	minFilter     = .Linear,
-	mipmapFilter  = .Nearest,
-	lodMinClamp  = 0.0,
-	lodMaxClamp  = 32.0,
-	compare        = .Undefined,
-	maxAnisotropy = 1,
-}
-
-load_image :: proc(path: string) -> (texture: wgpu.Texture, texture_view: wgpu.TextureView, sampler: wgpu.Sampler) {
+load_image :: proc(path: string) -> (texture: wgpu.Texture, texture_view: wgpu.TextureView) {
 	filename := fmt.ctprintf("./assets/%s", path)
 	fmt.println("Loading texture:", filename)
 	sample_image, image_err := image.load_from_file(string(filename))
@@ -955,9 +940,6 @@ load_image :: proc(path: string) -> (texture: wgpu.Texture, texture_view: wgpu.T
 		sample_image,
 	)
 	texture_view = wgpu.TextureCreateView(texture)
-
-	// Create a sampler with linear filtering for smooth interpolation.
-	sampler = wgpu.DeviceCreateSampler(state.device, &sampler_descriptor)
 
 	// samplerBindGroup := wgpu.DeviceCreateBindGroup(
 	// 	state.device,
@@ -1131,12 +1113,11 @@ load_gltf :: proc(path: cstring) -> (output: Mesh) {
 	for &material in data.materials {
 		material_key := fmt.aprint(string(material.name))
 
-		texture, texture_view, sampler := load_image(string(material.pbr_metallic_roughness.base_color_texture.texture.image_.uri))
+		texture, texture_view := load_image(string(material.pbr_metallic_roughness.base_color_texture.texture.image_.uri))
 
 		materials[material_key] = UnlitMaterial{
 			base_colour_texture = texture,
 			base_colour_texture_view = texture_view,
-			base_colour_sampler = sampler,
 			bind_group = wgpu.DeviceCreateBindGroup(
 				state.device,
 				&wgpu.BindGroupDescriptor{
@@ -1146,7 +1127,7 @@ load_gltf :: proc(path: cstring) -> (output: Mesh) {
 					entries = raw_data(
 						[]wgpu.BindGroupEntry {
 							{binding = 0, textureView = texture_view},
-							{binding = 1, sampler = sampler},
+							{binding = 1, sampler = default_sampler},
 							// {binding = 2, textureView = normalTextureView},
 							// {binding = 3, sampler = normalSampler},
 							// {binding = 4, textureView = metallicRoughnessTextureView},
@@ -1453,11 +1434,8 @@ render_objects :: proc(render_pass_encoder : wgpu.RenderPassEncoder) {
 finish :: proc() {
 	mu_shutdown()
 
-	// wgpu.SamplerRelease(uvTextureSampler)
-	// wgpu.TextureViewRelease(uvTextureView)
-	// wgpu.TextureRelease(uvTexture)
+	wgpu.SamplerRelease(default_sampler)
 	for material_key, &material in materials {
-		wgpu.SamplerRelease(material.base_colour_sampler)
 		wgpu.TextureViewRelease(material.base_colour_texture_view)
 		wgpu.TextureRelease(material.base_colour_texture)
 		wgpu.BindGroupRelease(material.bind_group)
