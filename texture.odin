@@ -9,6 +9,7 @@ EngineTexture :: struct {
     from_colour_f32: proc(engineTexture: ^EngineTexture, colour: [4]f32) -> ^EngineTexture,
     from_colour_u8: proc(engineTexture: ^EngineTexture, colour: [4]u8) -> ^EngineTexture,
     create_view: proc(engineTexture: ^EngineTexture) -> wgpu.TextureView,
+    destroy: proc(engineTexture: ^EngineTexture),
 }
 
 new_EngineTexture :: proc() -> ^EngineTexture {
@@ -63,6 +64,7 @@ new_EngineTexture :: proc() -> ^EngineTexture {
         from_colour_f32 = from_colour_f32,
         from_colour_u8 = from_colour_u8,
         create_view = create_view,
+        destroy = free_EngineTexture,
     })
 }
 

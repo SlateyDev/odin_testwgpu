@@ -56,12 +56,14 @@ The ability to use VSCode for build/debug has also been included by selecting th
   - [x] Retrieve vertex normals
   - [x] Retrieve indexes
   - [x] Support base colour texture
+  - [s] Support for primitives with no texture
   - [ ] Support child node transforms
   - [ ] Support materials without textures (shader support?)
   - [ ] Support normal texture (needs shader support)
   - [ ] Support metallic/roughness texture (needs shader support)
   - [ ] Support ambient/occlusion texture (needs shader support)
   - [ ] Support animation (needs engine support)
+- [ ] Make glTF tester work out bounds of model and resize accordingly
 - [x] Directional light (Sun)
 - [ ] Point light
 - [ ] Spot light

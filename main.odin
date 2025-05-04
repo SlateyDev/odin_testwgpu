@@ -220,7 +220,7 @@ when ODIN_OS != .JS {
 	gameObject2 := MeshInstance {
 		translation = {2, -2, 0},
 		rotation    = la.quaternion_from_euler_angles_f32(0, 0, 0, la.Euler_Angle_Order.ZYX),
-		scale       = {1, 1, 1},
+		scale       = {100, 100, 100},
 		mesh = "duck",
 	}
 } else {
@@ -419,8 +419,8 @@ game :: proc() {
 		// blackTexture = new_EngineTexture()->from_colour_f32({0, 0, 0, 0})
 		// blackTexture->create_view()
 
-		// whiteTexture = new_EngineTexture()->from_colour_f32({1, 1, 1, 1})
-		// whiteTexture->create_view()
+		whiteTexture = new_EngineTexture()->from_colour_f32({1, 1, 1, 1})
+		whiteTexture->create_view()
 
 		// defaultNormalTexture = new_EngineTexture()->from_colour_f32({0.5, 0.5, 1, 0})
 		// defaultNormalTexture->create_view()
@@ -570,7 +570,7 @@ game :: proc() {
 
 		//currently only supporting - position: vec3, texcoord: vec2, color: vec4 (optional), with an index buffer
 		when ODIN_OS != .JS {
-			meshes["duck"] = load_gltf("./assets/SciFiHelmet.gltf")
+			meshes["duck"] = load_gltf("./assets/BoomBox.gltf")
 		}
 
 		state.light_uniform_buffer = wgpu.DeviceCreateBuffer(
@@ -1112,12 +1112,24 @@ load_gltf :: proc(path: cstring) -> (output: Mesh) {
 
 	for &material in data.materials {
 		material_key := fmt.aprint(string(material.name))
+		
+		material_texture: wgpu.Texture
+		material_texture_view: wgpu.TextureView
 
-		texture, texture_view := load_image(string(material.pbr_metallic_roughness.base_color_texture.texture.image_.uri))
-
+		if (material.pbr_metallic_roughness.base_color_texture.texture == nil) {
+			base_color := material.pbr_metallic_roughness.base_color_factor
+			texture := new_EngineTexture()->from_colour_f32(base_color)
+			texture->create_view()
+			
+			material_texture = texture.texture
+			material_texture_view = texture.view
+		} else {
+			material_texture, material_texture_view = load_image(string(material.pbr_metallic_roughness.base_color_texture.texture.image_.uri))
+		}
+		
 		materials[material_key] = UnlitMaterial{
-			base_colour_texture = texture,
-			base_colour_texture_view = texture_view,
+			base_colour_texture = material_texture,
+			base_colour_texture_view = material_texture_view,
 			bind_group = wgpu.DeviceCreateBindGroup(
 				state.device,
 				&wgpu.BindGroupDescriptor{
@@ -1126,7 +1138,7 @@ load_gltf :: proc(path: cstring) -> (output: Mesh) {
 					entryCount = 2,
 					entries = raw_data(
 						[]wgpu.BindGroupEntry {
-							{binding = 0, textureView = texture_view},
+							{binding = 0, textureView = material_texture_view},
 							{binding = 1, sampler = default_sampler},
 							// {binding = 2, textureView = normalTextureView},
 							// {binding = 3, sampler = normalSampler},
@@ -1442,6 +1454,7 @@ finish :: proc() {
 		delete(material_key)
 	}
 	delete(materials)
+	whiteTexture->destroy()
 	cleanup_objects()
 	cleanup_meshes()
 	cleanup_pipelines()
