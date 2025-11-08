@@ -72,8 +72,13 @@ ModelMatrices :: struct {
 	normal: la.Matrix4f32,
 }
 
+CASCADE_COUNT :: 4
+
 LightUniform :: struct {
-	view_proj: la.Matrix4x4f32,
+	cascades: [CASCADE_COUNT]struct {
+		view_proj: la.Matrix4x4f32,
+		split_depth: f32,
+	},
 	position: la.Vector4f32,
 }
 
@@ -123,7 +128,7 @@ directionalLightViewProjMatrix := la.matrix_mul(
 )
 
 directional_light := LightUniform {
-	view_proj = directionalLightViewProjMatrix,
+//	view_proj = directionalLightViewProjMatrix,
 	position = directionalLightPosition,
 }
 
@@ -715,7 +720,7 @@ game :: proc() {
 							visibility = { .Fragment },
 							texture = wgpu.TextureBindingLayout{
 								sampleType = .Depth,
-								viewDimension = ._2D,
+								viewDimension = ._2DArray,
 								multisampled = false,
 							},
 						},
@@ -1195,22 +1200,44 @@ create_depth_texture :: proc(){
 // dummyStorageBuffer : wgpu.Buffer
 // dummyShadowTexture : wgpu.Texture
 shadowDepthTexture : wgpu.Texture
-shadowDepthTextureView : wgpu.TextureView
+shadowDepthTextureViews : [CASCADE_COUNT]wgpu.TextureView
 
 createShadowCamera :: proc() {
-	shadowDepthTexture = wgpu.DeviceCreateTexture(state.device, &wgpu.TextureDescriptor{
-		size = wgpu.Extent3D{
-			width = 2048,
-			height = 2048,
-			depthOrArrayLayers = 1,
-		},
-		usage = {.RenderAttachment, .TextureBinding},
-		format = DEPTH_FORMAT,
-		dimension = ._2D,
-		sampleCount = 1,
-		mipLevelCount = 1,
-	})
-	shadowDepthTextureView = wgpu.TextureCreateView(shadowDepthTexture)
+    shadowDepthTexture = wgpu.DeviceCreateTexture(state.device, &wgpu.TextureDescriptor{
+        size = wgpu.Extent3D{
+            width = 2048,
+            height = 2048,
+            depthOrArrayLayers = CASCADE_COUNT,  // Create texture array
+        },
+        usage = {.RenderAttachment, .TextureBinding},
+        format = DEPTH_FORMAT,
+        dimension = ._2D,
+        sampleCount = 1,
+        mipLevelCount = 1,
+    })
+	for i in 0..<CASCADE_COUNT {
+		shadowDepthTextureViews[i] = wgpu.TextureCreateView(shadowDepthTexture, &wgpu.TextureViewDescriptor{
+			dimension = ._2D,
+			baseArrayLayer = u32(i),
+			arrayLayerCount = 1,
+			aspect = .DepthOnly,
+		})
+    }
+}
+
+calculate_cascade_splits :: proc() -> [CASCADE_COUNT]f32 {
+    near := flyCamera.near
+    far := flyCamera.far
+    lambda : f32 = 0.5  // Adjust this value to control cascade distribution
+    
+    splits : [CASCADE_COUNT]f32
+    for i in 0..<CASCADE_COUNT {
+        p := f32(i + 1) / f32(CASCADE_COUNT)
+        log_split := near * math.pow(far/near, p)
+        uniform_split := near + (far - near) * p
+        splits[i] = lambda * log_split + (1 - lambda) * uniform_split
+    }
+    return splits
 }
 
 resize :: proc "c" () {
@@ -1272,19 +1299,19 @@ frame :: proc "c" (dt: f32) {
 	defer wgpu.TextureViewRelease(frame)
 
 	//Transform objects
-	now := f32(time.duration_seconds(time.since(start_time)))
-	gameObject1.rotation = la.quaternion_from_euler_angles_f32(
-		0,
-		math.sin(now) * 1.2,
-		0,
-		la.Euler_Angle_Order.XYZ,
-	)
-	gameObject2.rotation = la.quaternion_from_euler_angles_f32(
-		0,
-		now,
-		0,
-		la.Euler_Angle_Order.XYZ,
-	)
+	//now := f32(time.duration_seconds(time.since(start_time)))
+	// gameObject1.rotation = la.quaternion_from_euler_angles_f32(
+	// 	0,
+	// 	math.sin(now) * 1.2,
+	// 	0,
+	// 	la.Euler_Angle_Order.XYZ,
+	// )
+	// gameObject2.rotation = la.quaternion_from_euler_angles_f32(
+	// 	0,
+	// 	now,
+	// 	0,
+	// 	la.Euler_Angle_Order.XYZ,
+	// )
 
 	//Setup matrices and write positions to uniform buffers
 	viewMatrix = la.MATRIX4F32_IDENTITY

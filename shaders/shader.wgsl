@@ -3,8 +3,13 @@ struct Camera {
     pos: vec4<f32>,
 }
 
-struct Light {
+struct CascadeInfo {
     view_proj: mat4x4<f32>,
+    split_depth: f32,
+}
+
+struct Light {
+    cascades: array<CascadeInfo, 4>,
     pos: vec4<f32>,
 }
 
@@ -48,8 +53,17 @@ fn vs_main(
 @group(2) @binding(0) var myTexture: texture_2d<f32>;
 @group(2) @binding(1) var mySampler: sampler;
 
-@group(3) @binding(0) var shadowMap: texture_depth_2d;
+@group(3) @binding(0) var shadowMap: texture_depth_2d_array;
 @group(3) @binding(1) var shadowSampler: sampler_comparison;
+
+fn get_cascade_index(camera_space_z: f32) -> i32 {
+    for (var i = 0; i < 4; i++) {
+        if (camera_space_z < light.cascades[i].split_depth) {
+            return i;
+        }
+    }
+    return 3;
+}
 
 override shadowDepthTextureSize: f32 = 2048.0;
 
@@ -74,25 +88,32 @@ fn fs_main(
 
     var result_color = (ambient_color + diffuse_color + specular_color) * object_color.xyz;
 
-    let shadowCoord = light.view_proj * vec4<f32>(in.world_position, 1.0);
-
+    let view_space_pos = camera.view_proj * vec4<f32>(in.world_position, 1.0);
+    let cascade_idx = get_cascade_index(view_space_pos.z);
+    
+    let shadowCoord = light.cascades[cascade_idx].view_proj * vec4<f32>(in.world_position, 1.0);
     let projCoords = shadowCoord.xyz / shadowCoord.w;
-    let shadowPos = vec3(projCoords.xy * vec2(0.5, -0.5) + vec2(0.5), projCoords.z);
+    let shadowPos = vec3<f32>(projCoords.xy * vec2<f32>(0.5, -0.5) + vec2<f32>(0.5), f32(cascade_idx));
+
+    let kernelSize: i32 = 1;
+    let weightTotal: f32 = f32(kernelSize * 2 + 1) * f32(kernelSize * 2 + 1);
 
     // Percentage-closer filtering. Sample texels in the region to smooth the result.
     var visibility = 0.0;
     let oneOverShadowDepthTextureSize = 1.0 / shadowDepthTextureSize;
-    for (var y = -1; y <= 1; y++) {
-        for (var x = -1; x <= 1; x++) {
-            let offset = vec2f(vec2(x, y)) * oneOverShadowDepthTextureSize;
-
+    for (var y = -kernelSize; y <= kernelSize; y++) {
+        for (var x = -kernelSize; x <= kernelSize; x++) {
+            let offset = vec2<f32>(vec2(x, y)) * oneOverShadowDepthTextureSize;
             visibility += textureSampleCompare(
-                shadowMap, shadowSampler,
-                shadowPos.xy + offset, shadowPos.z - 0.0005
+                shadowMap, 
+                shadowSampler,
+                shadowPos.xy + offset, 
+                cascade_idx,  // Layer index
+                shadowPos.z - 0.001 * f32(cascade_idx + 1)  // Increase bias for farther cascades
             );
         }
     }
-    visibility /= 9.0;
+    visibility /= weightTotal;
 
     let lambertian_factor = max(dot(light_dir, in.world_normal), 0.0);
     let lighting_factor = min(ambient_color + visibility * lambertian_factor, 1.0);
