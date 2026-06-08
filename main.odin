@@ -1254,7 +1254,7 @@ frame :: proc "c" (dt: f32) {
 		}
 		resize()
 		return
-	case .OutOfMemory, .DeviceLost, .Error:
+	case .Occluded, .Error:
 		// Fatal error
 		fmt.panicf("[triangle] get_current_texture status=%v", surface_texture.status)
 	}
