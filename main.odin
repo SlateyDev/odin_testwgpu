@@ -73,6 +73,7 @@ ModelMatrices :: struct {
 }
 
 CASCADE_COUNT :: 4
+SHADOW_MAP_SIZE :: u32(2048)
 
 LightUniform :: struct {
 	cascades: [CASCADE_COUNT]struct {
@@ -179,8 +180,8 @@ flyCamera := FlyCamera {
 		la.Vector3f32{0.0, 0.0, 1.0},
 		la.Vector3f32{0.0, -1.0, 0.0},
 		72 * la.RAD_PER_DEG,
-		0.01,
-		10.0,
+		0.1,
+		100.0,
 	},
 	0.0,
 	0.0,
@@ -525,8 +526,8 @@ game :: proc() {
 		projectionMatrix = la.matrix4_perspective(
 			flyCamera.fov,
 			f32(width) / f32(height),
-			1.0,
-			100.0,
+			flyCamera.near,
+			flyCamera.far,
 		)
 		viewMatrix = la.matrix4_look_at(
 			la.Vector3f32{0.0, 0.0, 4.0},
@@ -759,7 +760,7 @@ game :: proc() {
 				entryCount = 2,
 				entries = raw_data(
 					[]wgpu.BindGroupEntry {
-						{binding = 0, textureView = shadowDepthTextureView},
+						{binding = 0, textureView = shadowDepthTextureArrayView},
 						{binding = 1, sampler = testSampler},
 					},
 				),
@@ -1201,13 +1202,103 @@ create_depth_texture :: proc(){
 // dummyShadowTexture : wgpu.Texture
 shadowDepthTexture : wgpu.Texture
 shadowDepthTextureViews : [CASCADE_COUNT]wgpu.TextureView
+shadowDepthTextureArrayView : wgpu.TextureView
+
+dot3 :: proc(a, b: la.Vector3f32) -> f32 {
+	return a.x * b.x + a.y * b.y + a.z * b.z
+}
+
+build_cascade_frustum_corners :: proc(near_dist, far_dist: f32) -> [8]la.Vector3f32 {
+	aspect := f32(state.config.width) / f32(state.config.height)
+	half_fov_tan := math.tan(flyCamera.fov * 0.5)
+
+	forward := la.normalize(flyCamera.rotation)
+	right := la.normalize(la.vector_cross(forward, la.VECTOR3F32_Y_AXIS))
+	up := la.normalize(la.vector_cross(right, forward))
+
+	near_center := flyCamera.position + forward * near_dist
+	far_center := flyCamera.position + forward * far_dist
+
+	near_half_height := near_dist * half_fov_tan
+	near_half_width := near_half_height * aspect
+	far_half_height := far_dist * half_fov_tan
+	far_half_width := far_half_height * aspect
+
+	return [8]la.Vector3f32 {
+		near_center - right * near_half_width + up * near_half_height,
+		near_center + right * near_half_width + up * near_half_height,
+		near_center + right * near_half_width - up * near_half_height,
+		near_center - right * near_half_width - up * near_half_height,
+		far_center - right * far_half_width + up * far_half_height,
+		far_center + right * far_half_width + up * far_half_height,
+		far_center + right * far_half_width - up * far_half_height,
+		far_center - right * far_half_width - up * far_half_height,
+	}
+}
+
+update_cascade_data :: proc() {
+	splits := calculate_cascade_splits()
+	light_dir := la.normalize(la.Vector3f32{directional_light.position.x, directional_light.position.y, directional_light.position.z})
+
+	for i in 0..<CASCADE_COUNT {
+		cascade_near := i == 0 ? flyCamera.near : splits[i-1]
+		cascade_far := splits[i]
+		corners := build_cascade_frustum_corners(cascade_near, cascade_far)
+
+		frustum_center := la.Vector3f32{0, 0, 0}
+		for corner in corners {
+			frustum_center += corner
+		}
+		frustum_center /= f32(len(corners))
+
+		light_up := la.VECTOR3F32_Y_AXIS
+		if math.abs(dot3(light_dir, light_up)) > 0.99 {
+			light_up = la.VECTOR3F32_X_AXIS
+		}
+
+		light_right := la.normalize(la.vector_cross(light_up, light_dir))
+		light_up = la.normalize(la.vector_cross(light_dir, light_right))
+
+		min_x, max_x := f32(1e30), f32(-1e30)
+		min_y, max_y := f32(1e30), f32(-1e30)
+		min_z, max_z := f32(1e30), f32(-1e30)
+		for corner in corners {
+			offset := corner - frustum_center
+			x := dot3(offset, light_right)
+			y := dot3(offset, light_up)
+			z := dot3(offset, light_dir)
+
+			min_x = math.min(min_x, x)
+			max_x = math.max(max_x, x)
+			min_y = math.min(min_y, y)
+			max_y = math.max(max_y, y)
+			min_z = math.min(min_z, z)
+			max_z = math.max(max_z, z)
+		}
+
+		radius := math.max(math.max(math.abs(min_x), math.abs(max_x)), math.max(math.abs(min_y), math.abs(max_y)))
+		radius = math.max(radius, math.max(math.abs(min_z), math.abs(max_z))) + 10.0
+
+		light_view := la.matrix4_look_at_f32(frustum_center, frustum_center + light_dir, light_up)
+		light_proj := la.matrix_ortho3d_f32(-radius, radius, -radius, radius, -2.0 * radius, 2.0 * radius)
+
+		directional_light.cascades[i].view_proj = OPEN_GL_TO_WGPU_MATRIX * light_proj * light_view
+		directional_light.cascades[i].split_depth = cascade_far
+	}
+}
 
 createShadowCamera :: proc() {
+	if shadowDepthTextureArrayView != nil do wgpu.TextureViewRelease(shadowDepthTextureArrayView)
+	for i in 0..<CASCADE_COUNT {
+		if shadowDepthTextureViews[i] != nil do wgpu.TextureViewRelease(shadowDepthTextureViews[i])
+	}
+	if shadowDepthTexture != nil do wgpu.TextureRelease(shadowDepthTexture)
+
     shadowDepthTexture = wgpu.DeviceCreateTexture(state.device, &wgpu.TextureDescriptor{
         size = wgpu.Extent3D{
-            width = 2048,
-            height = 2048,
-            depthOrArrayLayers = CASCADE_COUNT,  // Create texture array
+            width = SHADOW_MAP_SIZE,
+            height = SHADOW_MAP_SIZE,
+            depthOrArrayLayers = CASCADE_COUNT,
         },
         usage = {.RenderAttachment, .TextureBinding},
         format = DEPTH_FORMAT,
@@ -1218,11 +1309,24 @@ createShadowCamera :: proc() {
 	for i in 0..<CASCADE_COUNT {
 		shadowDepthTextureViews[i] = wgpu.TextureCreateView(shadowDepthTexture, &wgpu.TextureViewDescriptor{
 			dimension = ._2D,
+			format = DEPTH_FORMAT,
 			baseArrayLayer = u32(i),
 			arrayLayerCount = 1,
+			baseMipLevel = 0,
+			mipLevelCount = 1,
 			aspect = .DepthOnly,
 		})
     }
+
+	shadowDepthTextureArrayView = wgpu.TextureCreateView(shadowDepthTexture, &wgpu.TextureViewDescriptor{
+		dimension = ._2DArray,
+		format = DEPTH_FORMAT,
+		baseArrayLayer = 0,
+		arrayLayerCount = CASCADE_COUNT,
+		baseMipLevel = 0,
+		mipLevelCount = 1,
+		aspect = .DepthOnly,
+	})
 }
 
 calculate_cascade_splits :: proc() -> [CASCADE_COUNT]f32 {
@@ -1248,8 +1352,8 @@ resize :: proc "c" () {
 	projectionMatrix = la.matrix4_perspective(
 		2 * math.PI / 5,
 		f32(state.config.width) / f32(state.config.height),
-		1.0,
-		100.0,
+		flyCamera.near,
+		flyCamera.far,
 	)
 
 	wgpu.SurfaceConfigure(state.surface, &state.config)
@@ -1324,6 +1428,7 @@ frame :: proc "c" (dt: f32) {
 		view_proj = transform,
 		position = la.Vector4f32 {flyCamera.position.x, flyCamera.position.y, flyCamera.position.z, 1.0},
 	}
+	update_cascade_data()
 
 	wgpu.QueueWriteBuffer(state.queue, state.camera_uniform_buffer, 0, &cameraData, size_of(CameraUniform))
 	wgpu.QueueWriteBuffer(state.queue, state.light_uniform_buffer, 0, &directional_light, size_of(LightUniform))
@@ -1341,32 +1446,41 @@ frame :: proc "c" (dt: f32) {
 		wgpu.QueueWriteBuffer(state.queue, object.uniform_buffer, 0, &model_matrices, size_of(ModelMatrices))
 	}
 
-	//Shadow render pass
-	shadow_command_encoder := wgpu.DeviceCreateCommandEncoder(state.device, nil)
-	defer wgpu.CommandEncoderRelease(shadow_command_encoder)
+	// Shadow render pass per cascade layer.
+	for cascade_index in 0..<CASCADE_COUNT {
+		shadow_light := directional_light
+		shadow_light.cascades[0] = directional_light.cascades[cascade_index]
+		wgpu.QueueWriteBuffer(state.queue, state.light_uniform_buffer, 0, &shadow_light, size_of(LightUniform))
 
-	shadow_render_pass_encoder := wgpu.CommandEncoderBeginRenderPass(
-		shadow_command_encoder,
-		&wgpu.RenderPassDescriptor{
-			colorAttachmentCount = 0,
-			depthStencilAttachment = &wgpu.RenderPassDepthStencilAttachment{
-				view = shadowDepthTextureView,
-				depthClearValue = 1.0,
-				depthLoadOp = .Clear,
-				depthStoreOp = .Store,
+		shadow_command_encoder := wgpu.DeviceCreateCommandEncoder(state.device, nil)
+		shadow_render_pass_encoder := wgpu.CommandEncoderBeginRenderPass(
+			shadow_command_encoder,
+			&wgpu.RenderPassDescriptor{
+				colorAttachmentCount = 0,
+				depthStencilAttachment = &wgpu.RenderPassDepthStencilAttachment{
+					view = shadowDepthTextureViews[cascade_index],
+					depthClearValue = 1.0,
+					depthLoadOp = .Clear,
+					depthStoreOp = .Store,
+				},
 			},
-		},
-	)
-	wgpu.RenderPassEncoderSetPipeline(shadow_render_pass_encoder, pipelines["shadow"])
-	// RENDER EVERYTHING IN SHADOW PASS
-	wgpu.RenderPassEncoderSetBindGroup(shadow_render_pass_encoder, 0, state.scene_bind_group)
-	render_objects(shadow_render_pass_encoder)
+		)
 
-	wgpu.RenderPassEncoderEnd(shadow_render_pass_encoder)
-	wgpu.RenderPassEncoderRelease(shadow_render_pass_encoder)
-	shadow_command_buffer := wgpu.CommandEncoderFinish(shadow_command_encoder, nil)
-	defer wgpu.CommandBufferRelease(shadow_command_buffer)
-	wgpu.QueueSubmit(state.queue, {shadow_command_buffer})
+		wgpu.RenderPassEncoderSetPipeline(shadow_render_pass_encoder, pipelines["shadow"])
+		wgpu.RenderPassEncoderSetBindGroup(shadow_render_pass_encoder, 0, state.scene_bind_group)
+		render_shadow_objects(shadow_render_pass_encoder)
+
+		wgpu.RenderPassEncoderEnd(shadow_render_pass_encoder)
+		wgpu.RenderPassEncoderRelease(shadow_render_pass_encoder)
+
+		shadow_command_buffer := wgpu.CommandEncoderFinish(shadow_command_encoder, nil)
+		wgpu.CommandEncoderRelease(shadow_command_encoder)
+		wgpu.QueueSubmit(state.queue, {shadow_command_buffer})
+		wgpu.CommandBufferRelease(shadow_command_buffer)
+	}
+
+	// Restore the full cascade data for the lighting pass.
+	wgpu.QueueWriteBuffer(state.queue, state.light_uniform_buffer, 0, &directional_light, size_of(LightUniform))
 
 
 	//Render pass
@@ -1470,6 +1584,54 @@ render_objects :: proc(render_pass_encoder : wgpu.RenderPassEncoder) {
 	}
 }
 
+render_shadow_objects :: proc(render_pass_encoder : wgpu.RenderPassEncoder) {
+	for &object, object_index in objects {
+		wgpu.RenderPassEncoderSetBindGroup(render_pass_encoder, 1, object.uniform_bind_group)
+
+		mesh := &meshes[object.mesh]
+		for &primitive in mesh.primitives {
+			if (primitive.vertices != 0 && primitive.vertexBuffer != nil) {
+				wgpu.RenderPassEncoderSetVertexBuffer(
+					render_pass_encoder,
+					0,
+					primitive.vertexBuffer,
+					0,
+					u64(primitive.vertices * size_of(Vertex)),
+				)
+			}
+
+			if (primitive.indices != 0 && primitive.indexBuffer != nil) {
+				wgpu.RenderPassEncoderSetIndexBuffer(
+					render_pass_encoder,
+					primitive.indexBuffer,
+					.Uint32,
+					0,
+					u64(primitive.indices * size_of(u32)),
+				)
+			}
+
+			if primitive.indices != 0 && primitive.indexBuffer != nil {
+				wgpu.RenderPassEncoderDrawIndexed(
+					render_pass_encoder,
+					u32(primitive.indices),
+					instanceCount = 1,
+					firstIndex = 0,
+					baseVertex = 0,
+					firstInstance = u32(object_index),
+				)
+			} else {
+				wgpu.RenderPassEncoderDraw(
+					render_pass_encoder,
+					vertexCount = u32(primitive.vertices),
+					instanceCount = 1,
+					firstVertex = 0,
+					firstInstance = u32(object_index),
+				)
+			}
+		}
+	}
+}
+
 finish :: proc() {
 	mu_shutdown()
 
@@ -1499,6 +1661,11 @@ finish :: proc() {
 	wgpu.BindGroupLayoutRelease(samplerBindGroupLayout)
 	wgpu.BindGroupRelease(shadowSamplerBindGroup)
 	wgpu.BindGroupLayoutRelease(shadowSamplerBindGroupLayout)
+	wgpu.TextureViewRelease(shadowDepthTextureArrayView)
+	for i in 0..<CASCADE_COUNT {
+		wgpu.TextureViewRelease(shadowDepthTextureViews[i])
+	}
+	wgpu.TextureRelease(shadowDepthTexture)
 
 	wgpu.QueueRelease(state.queue)
 	wgpu.DeviceRelease(state.device)

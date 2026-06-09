@@ -88,12 +88,17 @@ fn fs_main(
 
     var result_color = (ambient_color + diffuse_color + specular_color) * object_color.xyz;
 
-    let view_space_pos = camera.view_proj * vec4<f32>(in.world_position, 1.0);
-    let cascade_idx = get_cascade_index(view_space_pos.z);
+    let camera_depth = distance(camera.pos.xyz, in.world_position);
+    let cascade_idx = get_cascade_index(camera_depth);
     
     let shadowCoord = light.cascades[cascade_idx].view_proj * vec4<f32>(in.world_position, 1.0);
     let projCoords = shadowCoord.xyz / shadowCoord.w;
-    let shadowPos = vec3<f32>(projCoords.xy * vec2<f32>(0.5, -0.5) + vec2<f32>(0.5), f32(cascade_idx));
+    let shadow_uv = projCoords.xy * vec2<f32>(0.5, -0.5) + vec2<f32>(0.5);
+    let shadow_depth = projCoords.z;
+
+    if (shadow_uv.x < 0.0 || shadow_uv.x > 1.0 || shadow_uv.y < 0.0 || shadow_uv.y > 1.0 || shadow_depth < 0.0 || shadow_depth > 1.0) {
+        return vec4<f32>(result_color, object_color.a);
+    }
 
     let kernelSize: i32 = 1;
     let weightTotal: f32 = f32(kernelSize * 2 + 1) * f32(kernelSize * 2 + 1);
@@ -107,9 +112,9 @@ fn fs_main(
             visibility += textureSampleCompare(
                 shadowMap, 
                 shadowSampler,
-                shadowPos.xy + offset, 
+                shadow_uv + offset,
                 cascade_idx,  // Layer index
-                shadowPos.z - 0.001 * f32(cascade_idx + 1)  // Increase bias for farther cascades
+                shadow_depth - 0.001 * f32(cascade_idx + 1)
             );
         }
     }
