@@ -64,16 +64,16 @@ fn get_cascade_index(camera_space_z: f32) -> i32 {
             return i;
         }
     }
-    return 3;
+    return 4;
 }
 
 override shadowDepthTextureSize: f32 = 2048.0;
 
 const cascade_colour_modulator: array<vec3<f32>, 4> = array<vec3<f32>, 4>(
-    vec3<f32>(1.5, 1.0, 1.0),
-    vec3<f32>(1.0, 1.5, 1.0),
-    vec3<f32>(1.0, 1.0, 1.5),
-    vec3<f32>(1.5, 1.5, 1.0)
+    vec3<f32>(1.5, 0.5, 0.5),
+    vec3<f32>(0.5, 1.5, 0.5),
+    vec3<f32>(0.5, 0.5, 1.5),
+    vec3<f32>(1.5, 0.5, 1.5)
 );
 
 @fragment
@@ -97,7 +97,7 @@ fn fs_main(
 
     var result_color = (ambient_color + diffuse_color + specular_color) * object_color.xyz;
 
-    let camera_to_fragment = in.world_position - camera.pos.xyz;
+    let camera_to_fragment = -camera.pos.xyz - in.world_position;
     let camera_depth = dot(camera_to_fragment, normalize(camera.forward.xyz));
     let cascade_idx = get_cascade_index(camera_depth);
     
@@ -106,7 +106,7 @@ fn fs_main(
     let shadow_uv = projCoords.xy * vec2<f32>(0.5, -0.5) + vec2<f32>(0.5);
     let shadow_depth = projCoords.z;
 
-    if (shadow_uv.x < 0.0 || shadow_uv.x > 1.0 || shadow_uv.y < 0.0 || shadow_uv.y > 1.0 || shadow_depth < 0.0 || shadow_depth > 1.0) {
+    if (shadow_uv.x < 0.0 || shadow_uv.x > 1.0 || shadow_uv.y < 0.0 || shadow_uv.y > 1.0 || shadow_depth < 0.0 || shadow_depth > 1.0 || cascade_idx >= 4) {
         return vec4<f32>(result_color, object_color.a);
     }
 
