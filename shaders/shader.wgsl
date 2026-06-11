@@ -97,7 +97,7 @@ fn fs_main(
 
     var result_color = (ambient_color + diffuse_color + specular_color) * object_color.xyz;
 
-    let camera_to_fragment = -camera.pos.xyz - in.world_position;
+    let camera_to_fragment = in.world_position - camera.pos.xyz;
     let camera_depth = dot(camera_to_fragment, normalize(camera.forward.xyz));
     let cascade_idx = get_cascade_index(camera_depth);
     

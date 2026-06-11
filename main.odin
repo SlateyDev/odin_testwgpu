@@ -201,7 +201,7 @@ CAMERA_SPEED :: 0.3
 
 camera_adjust_pitch :: proc(camera : ^FlyCamera, delta : f32) {
    //Clamp to 90 and -90
-   camera.pitch = math.max(-89.0 * la.RAD_PER_DEG, math.min(89.0 * la.RAD_PER_DEG, camera.pitch + delta * la.RAD_PER_DEG * CAMERA_SPEED))
+   camera.pitch = math.max(-89.0 * la.RAD_PER_DEG, math.min(89.0 * la.RAD_PER_DEG, camera.pitch - delta * la.RAD_PER_DEG * CAMERA_SPEED))
    camera_update_direction(camera)
 }
 
@@ -1253,6 +1253,8 @@ update_cascade_data :: proc() {
 		}
 		frustum_center /= f32(len(corners))
 
+		fmt.println("Frustum center for cascade ", i, ": ", frustum_center)
+
 		light_up := la.VECTOR3F32_Y_AXIS
 		if math.abs(dot3(light_dir, light_up)) > 0.99 {
 			light_up = la.VECTOR3F32_X_AXIS
@@ -1422,11 +1424,8 @@ frame :: proc "c" (dt: f32) {
 	// )
 
 	//Setup matrices and write positions to uniform buffers
-	viewMatrix = la.MATRIX4F32_IDENTITY
-	viewMatrix *= la.matrix4_rotate(flyCamera.pitch, la.VECTOR3F32_X_AXIS)
-	viewMatrix *= la.matrix4_rotate(flyCamera.yaw, la.VECTOR3F32_Y_AXIS)
-	viewMatrix *= la.matrix4_translate(flyCamera.camera.position)
 	forward := la.normalize(flyCamera.rotation)
+	viewMatrix = la.matrix4_look_at_f32(flyCamera.position, flyCamera.position + forward, la.VECTOR3F32_Y_AXIS)
 
 	transform := OPEN_GL_TO_WGPU_MATRIX * projectionMatrix * viewMatrix
 	cameraData := CameraUniform {
