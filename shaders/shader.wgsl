@@ -1,11 +1,13 @@
 struct Camera {
     view_proj: mat4x4<f32>,
     pos: vec4<f32>,
+    forward: vec4<f32>,
 }
 
 struct CascadeInfo {
     view_proj: mat4x4<f32>,
     split_depth: f32,
+    _pad: vec3<f32>,
 }
 
 struct Light {
@@ -67,6 +69,13 @@ fn get_cascade_index(camera_space_z: f32) -> i32 {
 
 override shadowDepthTextureSize: f32 = 2048.0;
 
+const cascade_colour_modulator: array<vec3<f32>, 4> = array<vec3<f32>, 4>(
+    vec3<f32>(1.5, 1.0, 1.0),
+    vec3<f32>(1.0, 1.5, 1.0),
+    vec3<f32>(1.0, 1.0, 1.5),
+    vec3<f32>(1.5, 1.5, 1.0)
+);
+
 @fragment
 fn fs_main(
     in: VertexOutput,
@@ -88,7 +97,8 @@ fn fs_main(
 
     var result_color = (ambient_color + diffuse_color + specular_color) * object_color.xyz;
 
-    let camera_depth = distance(camera.pos.xyz, in.world_position);
+    let camera_to_fragment = in.world_position - camera.pos.xyz;
+    let camera_depth = dot(camera_to_fragment, normalize(camera.forward.xyz));
     let cascade_idx = get_cascade_index(camera_depth);
     
     let shadowCoord = light.cascades[cascade_idx].view_proj * vec4<f32>(in.world_position, 1.0);
@@ -123,5 +133,5 @@ fn fs_main(
     let lambertian_factor = max(dot(light_dir, in.world_normal), 0.0);
     let lighting_factor = min(ambient_color + visibility * lambertian_factor, 1.0);
 
-    return vec4<f32>(lighting_factor * result_color, object_color.a);
+    return vec4<f32>(lighting_factor * result_color * cascade_colour_modulator[cascade_idx], object_color.a);
 }

@@ -79,6 +79,7 @@ LightUniform :: struct {
 	cascades: [CASCADE_COUNT]struct {
 		view_proj: la.Matrix4x4f32,
 		split_depth: f32,
+		padding: [3]f32,
 	},
 	position: la.Vector4f32,
 }
@@ -86,6 +87,7 @@ LightUniform :: struct {
 CameraUniform :: struct {
 	view_proj: la.Matrix4x4f32,
 	position: la.Vector4f32,
+	forward: la.Vector4f32,
 }
 
 State :: struct {
@@ -1238,7 +1240,7 @@ build_cascade_frustum_corners :: proc(near_dist, far_dist: f32) -> [8]la.Vector3
 
 update_cascade_data :: proc() {
 	splits := calculate_cascade_splits()
-	light_dir := la.normalize(la.Vector3f32{directional_light.position.x, directional_light.position.y, directional_light.position.z})
+	light_dir := la.normalize(-la.Vector3f32{directional_light.position.x, directional_light.position.y, directional_light.position.z})
 
 	for i in 0..<CASCADE_COUNT {
 		cascade_near := i == 0 ? flyCamera.near : splits[i-1]
@@ -1279,11 +1281,13 @@ update_cascade_data :: proc() {
 		radius := math.max(math.max(math.abs(min_x), math.abs(max_x)), math.max(math.abs(min_y), math.abs(max_y)))
 		radius = math.max(radius, math.max(math.abs(min_z), math.abs(max_z))) + 10.0
 
-		light_view := la.matrix4_look_at_f32(frustum_center, frustum_center + light_dir, light_up)
+		light_pos := frustum_center - light_dir * radius
+		light_view := la.matrix4_look_at_f32(light_pos, frustum_center, light_up)
 		light_proj := la.matrix_ortho3d_f32(-radius, radius, -radius, radius, -2.0 * radius, 2.0 * radius)
 
 		directional_light.cascades[i].view_proj = OPEN_GL_TO_WGPU_MATRIX * light_proj * light_view
 		directional_light.cascades[i].split_depth = cascade_far
+		directional_light.cascades[i].padding = {}
 	}
 }
 
@@ -1422,11 +1426,13 @@ frame :: proc "c" (dt: f32) {
 	viewMatrix *= la.matrix4_rotate(flyCamera.pitch, la.VECTOR3F32_X_AXIS)
 	viewMatrix *= la.matrix4_rotate(flyCamera.yaw, la.VECTOR3F32_Y_AXIS)
 	viewMatrix *= la.matrix4_translate(flyCamera.camera.position)
+	forward := la.normalize(flyCamera.rotation)
 
 	transform := OPEN_GL_TO_WGPU_MATRIX * projectionMatrix * viewMatrix
 	cameraData := CameraUniform {
 		view_proj = transform,
 		position = la.Vector4f32 {flyCamera.position.x, flyCamera.position.y, flyCamera.position.z, 1.0},
+		forward = la.Vector4f32 {forward.x, forward.y, forward.z, 0.0},
 	}
 	update_cascade_data()
 

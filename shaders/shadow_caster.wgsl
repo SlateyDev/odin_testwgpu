@@ -1,11 +1,13 @@
 struct Camera {
     view_proj: mat4x4<f32>,
     pos: vec4<f32>,
+    forward: vec4<f32>,
 }
 
 struct CascadeInfo {
     view_proj: mat4x4<f32>,
     split_depth: f32,
+    _pad: vec3<f32>,
 }
 
 struct Light {
