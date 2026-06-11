@@ -124,7 +124,7 @@ fn fs_main(
                 shadowSampler,
                 shadow_uv + offset,
                 cascade_idx,  // Layer index
-                shadow_depth - 0.001 * f32(cascade_idx + 1)
+                shadow_depth - (0.001 + 0.001 * f32(cascade_idx))
             );
         }
     }
