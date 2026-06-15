@@ -1253,8 +1253,6 @@ update_cascade_data :: proc() {
 		}
 		frustum_center /= f32(len(corners))
 
-		fmt.println("Frustum center for cascade ", i, ": ", frustum_center)
-
 		light_up := la.VECTOR3F32_Y_AXIS
 		if math.abs(dot3(light_dir, light_up)) > 0.99 {
 			light_up = la.VECTOR3F32_X_AXIS
