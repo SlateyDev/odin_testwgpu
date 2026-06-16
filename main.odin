@@ -565,15 +565,15 @@ game :: proc() {
 		)
 
 		cube_primitives := make([dynamic]Primitive)
-		append(&cube_primitives, createPrimitiveFromData(&cube_vertex_data, &cube_index_data, "textures/sample.png"))
+		append(&cube_primitives, createPrimitiveFromData(&cube_vertex_data, &cube_index_data, "sample.png"))
 		meshes["cube"] = Mesh{primitives = cube_primitives}
 
 		triangle_primitives := make([dynamic]Primitive)
-		append(&triangle_primitives, createPrimitiveFromData(&triangle_vertex_data, nil, "textures/sample.png"))
+		append(&triangle_primitives, createPrimitiveFromData(&triangle_vertex_data, nil, "sample.png"))
 		meshes["triangle"] = Mesh{primitives = triangle_primitives}
 
 		plane_primitives := make([dynamic]Primitive)
-		append(&plane_primitives, createPrimitiveFromData(&plane_vertex_data, &plane_index_data, "textures/sample.png"))
+		append(&plane_primitives, createPrimitiveFromData(&plane_vertex_data, &plane_index_data, "sample.png"))
 		meshes["plane"] = Mesh{primitives = plane_primitives}
 
 		//currently only supporting - position: vec3, texcoord: vec2, color: vec4 (optional), with an index buffer
@@ -689,8 +689,8 @@ game :: proc() {
 			},
 		)
 
-		texture, texture_view := load_image("textures/sample.png")
-		material_key := fmt.aprint("textures/sample.png")
+		texture, texture_view := load_image("sample.png")
+		material_key := fmt.aprint("sample.png")
 		materials[material_key] = UnlitMaterial{
 			id = 0,
 			base_colour_texture = texture,
@@ -932,9 +932,8 @@ game :: proc() {
 }
 
 load_image :: proc(path: string) -> (texture: wgpu.Texture, texture_view: wgpu.TextureView) {
-	filename := fmt.ctprintf("./assets/%s", path)
-	fmt.println("Loading texture:", filename)
-	sample_image, image_err := image.load_from_file(string(filename))
+	fmt.println("Loading texture:", path)
+	sample_image, image_err := os_load_image(path)
 	defer image.destroy(sample_image)
 
 	if image_err != nil {
@@ -1287,7 +1286,6 @@ update_cascade_data :: proc() {
 
 		directional_light.cascades[i].view_proj = OPEN_GL_TO_WGPU_MATRIX * light_proj * light_view
 		directional_light.cascades[i].split_depth = cascade_far
-		directional_light.cascades[i].padding = {}
 	}
 }
 
@@ -1450,8 +1448,8 @@ frame :: proc "c" (dt: f32) {
 	}
 
 	// Shadow render pass per cascade layer.
+	shadow_light := directional_light
 	for cascade_index in 0..<CASCADE_COUNT {
-		shadow_light := directional_light
 		shadow_light.cascades[0] = directional_light.cascades[cascade_index]
 		wgpu.QueueWriteBuffer(state.queue, state.light_uniform_buffer, 0, &shadow_light, size_of(LightUniform))
 

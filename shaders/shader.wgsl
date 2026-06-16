@@ -119,7 +119,7 @@ fn fs_main(
     for (var y = -kernelSize; y <= kernelSize; y++) {
         for (var x = -kernelSize; x <= kernelSize; x++) {
             let offset = vec2<f32>(vec2(x, y)) * oneOverShadowDepthTextureSize;
-            visibility += textureSampleCompare(
+            visibility += textureSampleCompareLevel(
                 shadowMap, 
                 shadowSampler,
                 shadow_uv + offset,

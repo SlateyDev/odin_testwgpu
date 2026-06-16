@@ -7,6 +7,9 @@ import "core:unicode/utf8"
 
 import "vendor:wgpu"
 import mu "vendor:microui"
+import "core:image"
+import "core:fmt"
+// import "vendor:cgltf"
 
 OS :: struct {
 	initialized: bool,
@@ -89,7 +92,9 @@ os_get_clipboard :: proc(_: rawptr) -> (string, bool) {
 }
 
 @(private="file", fini)
-os_fini :: proc() {
+os_fini :: proc "contextless" () {
+	context = state.ctx
+
 	js.remove_window_event_listener(.Key_Down, nil, key_down_callback)
 	js.remove_window_event_listener(.Key_Up, nil, key_up_callback)
 	js.remove_window_event_listener(.Mouse_Down, nil, mouse_down_callback)
@@ -103,7 +108,6 @@ os_fini :: proc() {
 
 @(private="file")
 size_callback :: proc(e: js.Event) {
-    context = state.ctx
 	resize()
 }
 
@@ -199,3 +203,31 @@ scroll_callback :: proc(e: js.Event) {
 	context = state.ctx
 	mu.input_scroll(&mu_ctx, i32(e.data.wheel.delta.x), i32(e.data.wheel.delta.y))
 }
+
+COMPTIME_ASSETS := #load_directory("./assets")
+
+os_load_image :: proc(path: string) -> (output: ^image.Image, err: image.Error) {
+	for file in COMPTIME_ASSETS {
+		fmt.eprintfln("CHECK: Filename [%s] = [%s]", path, file.name)
+		if file.name == path {
+			output, err = image.load_from_bytes(file.data)
+			return
+		}
+	}
+
+	fmt.eprintfln("ERROR: Asset not found [%s]", path)
+
+	return nil, .Unable_To_Read_File
+}
+
+
+// os_load_gltf :: proc(path: cstring) -> (output: Mesh) {
+// 	for file in COMPTIME_ASSETS {
+// 		if file.name == string(path) {
+// 			return load_gltf_from_bytes(file.data)
+// 		}
+// 	}
+
+// 	fmt.eprintfln("ERROR: Asset not found [%s]", path)
+// 	return
+// }
