@@ -11,13 +11,38 @@
 		<script type="text/javascript" src="odin.js"></script>
 		<script type="text/javascript" src="wgpu.js"></script>
 		<script type="text/javascript">
+			const canvas = document.getElementById('wgpu-canvas');
+			canvas.addEventListener('contextmenu', (event) => {
+				event.preventDefault();
+			});
+
 			const mem = new WebAssembly.Memory({ initial: 2000, maximum: 65536, shared: false });
 			const memInterface = new odin.WasmMemoryInterface();
 			memInterface.setMemory(mem);
 
+			const customImports = {
+				web_request_pointer_lock: (canvasIdPtr, canvasIdLen) => {
+					// Read the string passed from Odin
+					const view = new Uint8Array(mem.buffer);
+					let id = "";
+					for (let i = 0; i < canvasIdLen; i++) {
+						id += String.fromCharCode(view[canvasIdPtr + i]);
+					}
+					console.log(id);
+					
+					const canvas = document.getElementById(id);
+					if (canvas) {
+						canvas.requestPointerLock();
+					}
+				},
+				web_release_pointer_lock: () => {
+					document.exitPointerLock();
+				}
+			}
+
 			const wgpuInterface = new odin.WebGPUInterface(memInterface);
 
-			odin.runWasm("test.wasm", null, { wgpu: wgpuInterface.getInterface() }, memInterface, /*intSize=8*/);
+			odin.runWasm("test.wasm", null, { wgpu: wgpuInterface.getInterface(), customImports: customImports }, memInterface, /*intSize=8*/);
 		</script>
 	</body>
 </html>

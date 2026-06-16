@@ -30,7 +30,6 @@ UnlitMaterial :: struct {
 	id: uint,
 	base_colour_texture: wgpu.Texture,
 	base_colour_texture_view: wgpu.TextureView,
-	base_colour_sampler: wgpu.Sampler,
 	// transparent: bool,
 	// double_sided: bool,
 	// alpha_cutoff: f32,
@@ -68,14 +67,26 @@ MeshInstance :: struct {
 	mesh: string,
 }
 
-LightUniform :: struct {
-	view_proj: la.Matrix4x4f32,
+ModelMatrices :: struct #align(16) {
+	model: la.Matrix4f32,
+	normal: la.Matrix4f32,
+}
+
+CASCADE_COUNT :: 4
+SHADOW_MAP_SIZE :: u32(2048)
+
+LightUniform :: struct #align(16) {
+	cascades: [CASCADE_COUNT]struct #align(16) {
+		view_proj: la.Matrix4x4f32,
+		split_depth: la.Vector4f32,
+	},
 	position: la.Vector4f32,
 }
 
-CameraUniform :: struct {
+CameraUniform :: struct #align(16) {
 	view_proj: la.Matrix4x4f32,
 	position: la.Vector4f32,
+	forward: la.Vector4f32,
 }
 
 State :: struct {
@@ -112,18 +123,22 @@ materials: map[string]UnlitMaterial
 
 directionalLightPosition : [4]f32 = {50, 100, -100, 1}
 directionalLightViewMatrix := la.matrix4_look_at_f32(directionalLightPosition.xyz, 0, la.VECTOR3F32_Y_AXIS)
-directionalLightProjectionMatrix := la.matrix_ortho3d_f32(-80, 80, -80, 80, -200, 300)
+directionalLightProjectionMatrix := la.matrix_ortho3d_f32(-40, 40, -40, 40, -200, 300)
 directionalLightViewProjMatrix := la.matrix_mul(
 	directionalLightProjectionMatrix,
 	directionalLightViewMatrix,
 )
 
 directional_light := LightUniform {
-	view_proj = directionalLightViewProjMatrix,
+//	view_proj = directionalLightViewProjMatrix,
 	position = directionalLightPosition,
 }
 
 objects: [dynamic]^MeshInstance
+
+blackTexture : ^EngineTexture
+whiteTexture : ^EngineTexture
+defaultNormalTexture : ^EngineTexture
 
 Primitive :: struct {
 	materialResourceName: string,
@@ -166,8 +181,8 @@ flyCamera := FlyCamera {
 		la.Vector3f32{0.0, 0.0, 1.0},
 		la.Vector3f32{0.0, -1.0, 0.0},
 		72 * la.RAD_PER_DEG,
-		0.01,
-		10.0,
+		0.1,
+		100.0,
 	},
 	0.0,
 	0.0,
@@ -185,7 +200,7 @@ CAMERA_SPEED :: 0.3
 
 camera_adjust_pitch :: proc(camera : ^FlyCamera, delta : f32) {
    //Clamp to 90 and -90
-   camera.pitch = math.max(-89.0 * la.RAD_PER_DEG, math.min(89.0 * la.RAD_PER_DEG, camera.pitch + delta * la.RAD_PER_DEG * CAMERA_SPEED))
+   camera.pitch = math.max(-89.0 * la.RAD_PER_DEG, math.min(89.0 * la.RAD_PER_DEG, camera.pitch - delta * la.RAD_PER_DEG * CAMERA_SPEED))
    camera_update_direction(camera)
 }
 
@@ -212,7 +227,7 @@ when ODIN_OS != .JS {
 	gameObject2 := MeshInstance {
 		translation = {2, -2, 0},
 		rotation    = la.quaternion_from_euler_angles_f32(0, 0, 0, la.Euler_Angle_Order.ZYX),
-		scale       = {10, 10, 10},
+		scale       = {100, 100, 100},
 		mesh = "duck",
 	}
 } else {
@@ -227,11 +242,10 @@ when ODIN_OS != .JS {
 gameObject3 := MeshInstance {
 	translation = {0, -4, 0},
 	rotation = la.quaternion_from_euler_angles_f32(0, 0, -0.5*la.PI, la.Euler_Angle_Order.ZYX),
-	scale = {10, 10, 10},
+	scale = {40, 40, 40},
 	mesh = "plane",
 }
 
-modelMatrix := la.MATRIX4F32_IDENTITY
 viewMatrix := la.MATRIX4F32_IDENTITY
 projectionMatrix: la.Matrix4f32
 
@@ -251,6 +265,21 @@ samplerBindGroupLayout : wgpu.BindGroupLayout
 
 shadowSamplerBindGroupLayout : wgpu.BindGroupLayout
 shadowSamplerBindGroup : wgpu.BindGroup
+
+sampler_descriptor := wgpu.SamplerDescriptor {
+	label          = "Sampler Descriptor",
+	addressModeU = .ClampToEdge,
+	addressModeV = .ClampToEdge,
+	addressModeW = .ClampToEdge,
+	magFilter     = .Linear,
+	minFilter     = .Linear,
+	mipmapFilter  = .Nearest,
+	lodMinClamp  = 0.0,
+	lodMaxClamp  = 32.0,
+	compare        = .Undefined,
+	maxAnisotropy = 1,
+}
+default_sampler: wgpu.Sampler
 
 DEPTH_FORMAT :: wgpu.TextureFormat.Depth32Float
 
@@ -285,10 +314,12 @@ main :: proc() {
 	game()
 }
 
-createPrimitiveFromData :: proc(vertex_data : ^[]Vertex, index_data : ^[]u32) -> Primitive {
+createPrimitiveFromData :: proc(vertex_data : ^[]Vertex, index_data : ^[]u32, material_key: string) -> Primitive {
+	key := fmt.aprint(material_key)
 	new_primitive := Primitive {
 		vertices = len(vertex_data^),
 		indices = index_data != nil ? len(index_data^) : 0,
+		materialResourceName = key,
 	}
 	new_primitive.vertexBuffer = wgpu.DeviceCreateBufferWithData(
 		state.device,
@@ -374,6 +405,7 @@ game :: proc() {
 			fmt.panicf("request device failure: [%v] %s", status, message)
 		}
 		state.device = device
+		state.queue = wgpu.DeviceGetQueue(state.device)
 
 		width, height := os_get_render_bounds()
 
@@ -388,11 +420,115 @@ game :: proc() {
 		}
 		wgpu.SurfaceConfigure(state.surface, &state.config)
 
+		// Create a sampler with linear filtering for smooth interpolation.
+		default_sampler = wgpu.DeviceCreateSampler(state.device, &sampler_descriptor)
+
+		// blackTexture = new_EngineTexture()->from_colour_f32({0, 0, 0, 0})
+		// blackTexture->create_view()
+
+		whiteTexture = new_EngineTexture()->from_colour_f32({1, 1, 1, 1})
+		whiteTexture->create_view()
+
+		// defaultNormalTexture = new_EngineTexture()->from_colour_f32({0.5, 0.5, 1, 0})
+		// defaultNormalTexture->create_view()
+
+		samplerBindGroupLayout = wgpu.DeviceCreateBindGroupLayout(
+			state.device,
+			&wgpu.BindGroupLayoutDescriptor {
+				label = "Bind Group Layout",
+				entryCount = 2,
+				entries = raw_data(
+					[]wgpu.BindGroupLayoutEntry {
+						{
+							binding = 0,
+							visibility = { .Fragment },
+							texture = {
+								sampleType = .Float,
+								viewDimension = ._2D,
+								multisampled = false,
+							},
+						},
+						{
+							binding = 1,
+							visibility = { .Fragment },
+							sampler = {
+								type = .Filtering,
+							},
+						},
+						// {
+						// 	binding = 2,
+						// 	visibility = { .Fragment },
+						// 	texture = {
+						// 		sampleType = .Float,
+						// 		viewDimension = ._2D,
+						// 		multisampled = false,
+						// 	},
+						// },
+						// {
+						// 	binding = 3,
+						// 	visibility = { .Fragment },
+						// 	sampler = {
+						// 		type = .Filtering,
+						// 	},
+						// },
+						// {
+						// 	binding = 4,
+						// 	visibility = { .Fragment },
+						// 	texture = {
+						// 		sampleType = .Float,
+						// 		viewDimension = ._2D,
+						// 		multisampled = false,
+						// 	},
+						// },
+						// {
+						// 	binding = 5,
+						// 	visibility = { .Fragment },
+						// 	sampler = {
+						// 		type = .Filtering,
+						// 	},
+						// },
+						// {
+						// 	binding = 6,
+						// 	visibility = { .Fragment },
+						// 	texture = {
+						// 		sampleType = .Float,
+						// 		viewDimension = ._2D,
+						// 		multisampled = false,
+						// 	},
+						// },
+						// {
+						// 	binding = 7,
+						// 	visibility = { .Fragment },
+						// 	sampler = {
+						// 		type = .Filtering,
+						// 	},
+						// },
+						// {
+						// 	binding = 8,
+						// 	visibility = { .Fragment },
+						// 	texture = {
+						// 		sampleType = .Float,
+						// 		viewDimension = ._2D,
+						// 		multisampled = false,
+						// 	},
+						// },
+						// {
+						// 	binding = 9,
+						// 	visibility = { .Fragment },
+						// 	sampler = {
+						// 		type = .Filtering,
+						// 	},
+						// },
+					},
+				),
+			},
+		)
+
 		projectionMatrix = la.matrix4_perspective(
 			flyCamera.fov,
 			f32(width) / f32(height),
-			1.0,
-			100.0,
+			flyCamera.near,
+			flyCamera.far,
 		)
 		viewMatrix = la.matrix4_look_at(
 			la.Vector3f32{0.0, 0.0, 4.0},
@@ -406,8 +542,6 @@ game :: proc() {
 			&gameObject2,
 			&gameObject3,
 		)
-
-		state.queue = wgpu.DeviceGetQueue(state.device)
 
 		shaders["testShader"] = wgpu.DeviceCreateShaderModule(
 			state.device,
@@ -430,20 +564,20 @@ game :: proc() {
 		)
 
 		cube_primitives := make([dynamic]Primitive)
-		append(&cube_primitives, createPrimitiveFromData(&cube_vertex_data, &cube_index_data))
+		append(&cube_primitives, createPrimitiveFromData(&cube_vertex_data, &cube_index_data, "sample.png"))
 		meshes["cube"] = Mesh{primitives = cube_primitives}
 
 		triangle_primitives := make([dynamic]Primitive)
-		append(&triangle_primitives, createPrimitiveFromData(&triangle_vertex_data, nil))
+		append(&triangle_primitives, createPrimitiveFromData(&triangle_vertex_data, nil, "sample.png"))
 		meshes["triangle"] = Mesh{primitives = triangle_primitives}
 
 		plane_primitives := make([dynamic]Primitive)
-		append(&plane_primitives, createPrimitiveFromData(&plane_vertex_data, &plane_index_data))
+		append(&plane_primitives, createPrimitiveFromData(&plane_vertex_data, &plane_index_data, "sample.png"))
 		meshes["plane"] = Mesh{primitives = plane_primitives}
 
 		//currently only supporting - position: vec3, texcoord: vec2, color: vec4 (optional), with an index buffer
 		when ODIN_OS != .JS {
-			meshes["duck"] = load_gltf("./assets/rubber_duck_toy_1k.gltf")
+			meshes["duck"] = load_gltf("./assets/BoomBox.gltf")
 		}
 
 		state.light_uniform_buffer = wgpu.DeviceCreateBuffer(
@@ -487,7 +621,7 @@ game :: proc() {
 				&wgpu.BufferDescriptor {
 					label = "Mesh Uniform Buffer",
 					usage = {.Uniform, .CopyDst},
-					size = size_of(matrix[4, 4]f32),
+					size = size_of(ModelMatrices),
 				},
 			)
 			object.uniform_bind_group = wgpu.DeviceCreateBindGroup(
@@ -501,7 +635,7 @@ game :: proc() {
 							{
 								binding = 0,
 								buffer = object.uniform_buffer,
-								size = size_of(matrix[4, 4]f32),
+								size = size_of(ModelMatrices),
 							},
 						},
 					),
@@ -554,76 +688,26 @@ game :: proc() {
 			},
 		)
 
-		samplerBindGroupLayout = wgpu.DeviceCreateBindGroupLayout(
-			state.device,
-			&wgpu.BindGroupLayoutDescriptor {
-				label = "Bind Group Layout",
-				entryCount = 2,
-				entries = raw_data(
-					[]wgpu.BindGroupLayoutEntry {
-						{
-							binding = 0,
-							visibility = { .Fragment },
-							texture = {
-								sampleType = .Float,
-								viewDimension = ._2D,
-								multisampled = false,
-							},
-						},
-						{
-							binding = 1,
-							visibility = { .Fragment },
-							sampler = {
-								type = .Filtering,
-							},
-						},
-					},
-				),
-			},
-		)
-
-		{
-			sample_image, _ := image.load_from_bytes(#load("./assets/textures/sample.png"))
-			defer image.destroy(sample_image)
-			// Load the image and upload it into a Texture.
-			uvTexture := queue_copy_image_to_texture(
+		texture, texture_view := load_image("sample.png")
+		material_key := fmt.aprint("sample.png")
+		materials[material_key] = UnlitMaterial{
+			id = 0,
+			base_colour_texture = texture,
+			base_colour_texture_view = texture_view,
+			bind_group = wgpu.DeviceCreateBindGroup(
 				state.device,
-				state.queue,
-				sample_image,
-			)
-			uvTextureView := wgpu.TextureCreateView(uvTexture)
-
-			// Create a sampler with linear filtering for smooth interpolation.
-			sampler_descriptor := wgpu.SamplerDescriptor {
-				label          = "Sampler Descriptor",
-				addressModeU = .ClampToEdge,
-				addressModeV = .ClampToEdge,
-				addressModeW = .ClampToEdge,
-				magFilter     = .Linear,
-				minFilter     = .Linear,
-				mipmapFilter  = .Nearest,
-				lodMinClamp  = 0.0,
-				lodMaxClamp  = 32.0,
-				compare        = .Undefined,
-				maxAnisotropy = 1,
-			}
-			uvTextureSampler := wgpu.DeviceCreateSampler(state.device, &sampler_descriptor)
-
-			samplerBindGroup := wgpu.DeviceCreateBindGroup(
-				state.device,
-				&{
+				&wgpu.BindGroupDescriptor{
+					label = "Bind Group",
 					layout = samplerBindGroupLayout,
 					entryCount = 2,
 					entries = raw_data(
 						[]wgpu.BindGroupEntry {
-							{binding = 0, textureView = uvTextureView},
-							{binding = 1, sampler = uvTextureSampler},
+							{binding = 0, textureView = texture_view},
+							{binding = 1, sampler = default_sampler},
 						},
 					),
 				},
-			)
-
-			materials["sample.png"] = UnlitMaterial{id = 1, base_colour_texture = uvTexture, base_colour_texture_view = uvTextureView, base_colour_sampler = uvTextureSampler, bind_group = samplerBindGroup}
+			),
 		}
 
 		shadowSamplerBindGroupLayout = wgpu.DeviceCreateBindGroupLayout(
@@ -638,7 +722,7 @@ game :: proc() {
 							visibility = { .Fragment },
 							texture = wgpu.TextureBindingLayout{
 								sampleType = .Depth,
-								viewDimension = ._2D,
+								viewDimension = ._2DArray,
 								multisampled = false,
 							},
 						},
@@ -677,7 +761,7 @@ game :: proc() {
 				entryCount = 2,
 				entries = raw_data(
 					[]wgpu.BindGroupEntry {
-						{binding = 0, textureView = shadowDepthTextureView},
+						{binding = 0, textureView = shadowDepthTextureArrayView},
 						{binding = 1, sampler = testSampler},
 					},
 				),
@@ -846,38 +930,83 @@ game :: proc() {
 	}
 }
 
-load_gltf :: proc(path: cstring) -> (output: Mesh) {
-	cgltf_options : cgltf.options
-	data, result := cgltf.parse_file(cgltf_options, path)
-	if result != .success {
+load_image :: proc(path: string) -> (texture: wgpu.Texture, texture_view: wgpu.TextureView) {
+	fmt.println("Loading texture:", path)
+	sample_image, image_err := os_load_image(path)
+	defer image.destroy(sample_image)
+
+	if image_err != nil {
+		fmt.println("Error loading image: ", image_err)
 		return
 	}
-	defer cgltf.free(data)
+	// Load the image and upload it into a Texture.
+	texture = queue_copy_image_to_texture(
+		state.device,
+		state.queue,
+		sample_image,
+	)
+	texture_view = wgpu.TextureCreateView(texture)
 
-	buffers_result := cgltf.load_buffers(cgltf_options, data, path)
-	if buffers_result != .success {
-		return
-	}
+	// samplerBindGroup := wgpu.DeviceCreateBindGroup(
+	// 	state.device,
+	// 	&wgpu.BindGroupDescriptor{
+	// 		label = "Bind Group",
+	// 		layout = samplerBindGroupLayout,
+	// 		entryCount = 2,
+	// 		entries = raw_data(
+	// 			[]wgpu.BindGroupEntry {
+	// 				{binding = 0, textureView = textureView},
+	// 				{binding = 1, sampler = textureSampler},
+	// 				// {binding = 2, textureView = normalTextureView},
+	// 				// {binding = 3, sampler = normalSampler},
+	// 				// {binding = 4, textureView = metallicRoughnessTextureView},
+	// 				// {binding = 5, sampler = metallicRoughnessSampler},
+	// 				// {binding = 6, textureView = emissiveTextureView},
+	// 				// {binding = 7, sampler = emissiveSampler},
+	// 				// {binding = 8, textureView = occlusionTextureView},
+	// 				// {binding = 9, sampler = occlusionSampler},
+	// 			},
+	// 		),
+	// 	},
+	// )
 
-	// data.meshes[0].primitives[0].material.pbr_metallic_roughness.base_color_texture.texture.basisu_image
-	// data.meshes[0].primitives[0].material.pbr_metallic_roughness.base_color_texture.texture.sampler
+	// materials[key] = UnlitMaterial{id = 1, base_colour_texture = texture, base_colour_texture_view = textureView, base_colour_sampler = textureSampler, bind_group = samplerBindGroup}
+	return
+}
 
-	loaded_primitives := make([dynamic]Primitive)
+load_gltf_nodes :: proc(loaded_primitives: ^[dynamic]Primitive, nodes: []^cgltf.node, parent_transform: la.Matrix4f32 = la.MATRIX4F32_IDENTITY) {
+	for &node in nodes {
+		fmt.println("Node name: ", string(node.name))
+		translation := node.translation
+		rotation := node.rotation
+		scale := node.scale
+		transform : la.Matrix4f32 = transmute(matrix[4,4]f32)(node.matrix_)
+		if !node.has_matrix {
+			transform = la.matrix4_from_trs_f32(
+				la.Vector3f32{translation.x, translation.y, translation.z},
+				quaternion(x = rotation.x, y = rotation.y, z = rotation.z, w = rotation.w),
+				la.Vector3f32{scale.x, scale.y, scale.z},
+			)
+		}
 
-	// for &node in data.nodes {
-	// }
+		node_transform := la.matrix_mul(
+			parent_transform,
+			transform,
+		)
 
-	if len(data.meshes) == 0 do return
-	for &mesh_data in data.meshes {
-		if len(mesh_data.primitives) == 0 do continue
+		mesh := node.mesh
+		if mesh == nil do continue
+		fmt.println("Mesh name: ", string(mesh.name))
+		primitives := mesh.primitives
+		if primitives == nil do continue
 
 		verts : Maybe(uint) = nil
 
 		vert_data : []Vertex
 		defer delete(vert_data)
 
-		for &primitive in mesh_data.primitives {
-			if len(primitive.attributes) == 0 do continue
+		for &primitive in primitives {
+			if primitive.attributes == nil do continue
 			if primitive.indices == nil do continue
 			if primitive.type != .triangles do continue
 
@@ -952,9 +1081,86 @@ load_gltf :: proc(path: cstring) -> (output: Mesh) {
 				}
 			}
 
-			append(&loaded_primitives, createPrimitiveFromData(&vert_data, &index_data))
+			append(loaded_primitives, createPrimitiveFromData(&vert_data, &index_data, string(primitive.material.name)))
+		}
+
+		if node.children == nil do continue
+
+		load_gltf_nodes(loaded_primitives, node.children, node_transform)
+	}
+	return
+}
+
+load_gltf :: proc(path: cstring) -> (output: Mesh) {
+	cgltf_options : cgltf.options
+	data, result := cgltf.parse_file(cgltf_options, path)
+	if result != .success {
+		return
+	}
+	defer cgltf.free(data)
+
+	buffers_result := cgltf.load_buffers(cgltf_options, data, path)
+	if buffers_result != .success {
+		return
+	}
+
+	// data.meshes[0].primitives[0].material.pbr_metallic_roughness.base_color_texture.texture.basisu_image
+	// data.meshes[0].primitives[0].material.pbr_metallic_roughness.base_color_texture.texture.sampler
+
+	loaded_primitives := make([dynamic]Primitive)
+
+	for &scene in data.scenes {
+		fmt.println("Scene name: ", string(scene.name))
+		if scene.nodes == nil do continue
+
+		load_gltf_nodes(&loaded_primitives, scene.nodes)
+	}
+
+	for &material in data.materials {
+		material_key := fmt.aprint(string(material.name))
+		
+		material_texture: wgpu.Texture
+		material_texture_view: wgpu.TextureView
+
+		if (material.pbr_metallic_roughness.base_color_texture.texture == nil) {
+			base_color := material.pbr_metallic_roughness.base_color_factor
+			texture := new_EngineTexture()->from_colour_f32(base_color)
+			texture->create_view()
+			
+			material_texture = texture.texture
+			material_texture_view = texture.view
+		} else {
+			material_texture, material_texture_view = load_image(string(material.pbr_metallic_roughness.base_color_texture.texture.image_.uri))
+		}
+		
+		materials[material_key] = UnlitMaterial{
+			base_colour_texture = material_texture,
+			base_colour_texture_view = material_texture_view,
+			bind_group = wgpu.DeviceCreateBindGroup(
+				state.device,
+				&wgpu.BindGroupDescriptor{
+					label = "Bind Group",
+					layout = samplerBindGroupLayout,
+					entryCount = 2,
+					entries = raw_data(
+						[]wgpu.BindGroupEntry {
+							{binding = 0, textureView = material_texture_view},
+							{binding = 1, sampler = default_sampler},
+							// {binding = 2, textureView = normalTextureView},
+							// {binding = 3, sampler = normalSampler},
+							// {binding = 4, textureView = metallicRoughnessTextureView},
+							// {binding = 5, sampler = metallicRoughnessSampler},
+							// {binding = 6, textureView = emissiveTextureView},
+							// {binding = 7, sampler = emissiveSampler},
+							// {binding = 8, textureView = occlusionTextureView},
+							// {binding = 9, sampler = occlusionSampler},
+						},
+					),
+				},
+			),
 		}
 	}
+
 	output = Mesh{primitives = loaded_primitives}
 	return
 }
@@ -995,22 +1201,148 @@ create_depth_texture :: proc(){
 // dummyStorageBuffer : wgpu.Buffer
 // dummyShadowTexture : wgpu.Texture
 shadowDepthTexture : wgpu.Texture
-shadowDepthTextureView : wgpu.TextureView
+shadowDepthTextureViews : [CASCADE_COUNT]wgpu.TextureView
+shadowDepthTextureArrayView : wgpu.TextureView
+
+dot3 :: proc(a, b: la.Vector3f32) -> f32 {
+	return a.x * b.x + a.y * b.y + a.z * b.z
+}
+
+build_cascade_frustum_corners :: proc(near_dist, far_dist: f32) -> [8]la.Vector3f32 {
+	aspect := f32(state.config.width) / f32(state.config.height)
+	half_fov_tan := math.tan(flyCamera.fov * 0.5)
+
+	forward := la.normalize(flyCamera.rotation)
+	right := la.normalize(la.vector_cross(forward, la.VECTOR3F32_Y_AXIS))
+	up := la.normalize(la.vector_cross(right, forward))
+
+	near_center := flyCamera.position + forward * near_dist
+	far_center := flyCamera.position + forward * far_dist
+
+	near_half_height := near_dist * half_fov_tan
+	near_half_width := near_half_height * aspect
+	far_half_height := far_dist * half_fov_tan
+	far_half_width := far_half_height * aspect
+
+	return [8]la.Vector3f32 {
+		near_center - right * near_half_width + up * near_half_height,
+		near_center + right * near_half_width + up * near_half_height,
+		near_center + right * near_half_width - up * near_half_height,
+		near_center - right * near_half_width - up * near_half_height,
+		far_center - right * far_half_width + up * far_half_height,
+		far_center + right * far_half_width + up * far_half_height,
+		far_center + right * far_half_width - up * far_half_height,
+		far_center - right * far_half_width - up * far_half_height,
+	}
+}
+
+update_cascade_data :: proc() {
+	splits := calculate_cascade_splits()
+	light_dir := la.normalize(-la.Vector3f32{directional_light.position.x, directional_light.position.y, directional_light.position.z})
+
+	for i in 0..<CASCADE_COUNT {
+		cascade_near := i == 0 ? flyCamera.near : splits[i-1]
+		cascade_far := splits[i]
+		corners := build_cascade_frustum_corners(cascade_near, cascade_far)
+
+		frustum_center := la.Vector3f32{0, 0, 0}
+		for corner in corners {
+			frustum_center += corner
+		}
+		frustum_center /= f32(len(corners))
+
+		light_up := la.VECTOR3F32_Y_AXIS
+		if math.abs(dot3(light_dir, light_up)) > 0.99 {
+			light_up = la.VECTOR3F32_X_AXIS
+		}
+
+		light_right := la.normalize(la.vector_cross(light_up, light_dir))
+		light_up = la.normalize(la.vector_cross(light_dir, light_right))
+
+		min_x, max_x := f32(1e30), f32(-1e30)
+		min_y, max_y := f32(1e30), f32(-1e30)
+		min_z, max_z := f32(1e30), f32(-1e30)
+		for corner in corners {
+			offset := corner - frustum_center
+			x := dot3(offset, light_right)
+			y := dot3(offset, light_up)
+			z := dot3(offset, light_dir)
+
+			min_x = math.min(min_x, x)
+			max_x = math.max(max_x, x)
+			min_y = math.min(min_y, y)
+			max_y = math.max(max_y, y)
+			min_z = math.min(min_z, z)
+			max_z = math.max(max_z, z)
+		}
+
+		radius := math.max(math.max(math.abs(min_x), math.abs(max_x)), math.max(math.abs(min_y), math.abs(max_y)))
+		radius = math.max(radius, math.max(math.abs(min_z), math.abs(max_z))) + 10.0
+
+		light_pos := frustum_center - light_dir * radius
+		light_view := la.matrix4_look_at_f32(light_pos, frustum_center, light_up)
+		light_proj := la.matrix_ortho3d_f32(-radius, radius, -radius, radius, -2.0 * radius, 2.0 * radius)
+
+		directional_light.cascades[i].view_proj = OPEN_GL_TO_WGPU_MATRIX * light_proj * light_view
+		directional_light.cascades[i].split_depth = cascade_far
+	}
+}
 
 createShadowCamera :: proc() {
-	shadowDepthTexture = wgpu.DeviceCreateTexture(state.device, &wgpu.TextureDescriptor{
-		size = wgpu.Extent3D{
-			width = 2048,
-			height = 2048,
-			depthOrArrayLayers = 1,
-		},
-		usage = {.RenderAttachment, .TextureBinding},
+	if shadowDepthTextureArrayView != nil do wgpu.TextureViewRelease(shadowDepthTextureArrayView)
+	for i in 0..<CASCADE_COUNT {
+		if shadowDepthTextureViews[i] != nil do wgpu.TextureViewRelease(shadowDepthTextureViews[i])
+	}
+	if shadowDepthTexture != nil do wgpu.TextureRelease(shadowDepthTexture)
+
+    shadowDepthTexture = wgpu.DeviceCreateTexture(state.device, &wgpu.TextureDescriptor{
+        size = wgpu.Extent3D{
+            width = SHADOW_MAP_SIZE,
+            height = SHADOW_MAP_SIZE,
+            depthOrArrayLayers = CASCADE_COUNT,
+        },
+        usage = {.RenderAttachment, .TextureBinding},
+        format = DEPTH_FORMAT,
+        dimension = ._2D,
+        sampleCount = 1,
+        mipLevelCount = 1,
+    })
+	for i in 0..<CASCADE_COUNT {
+		shadowDepthTextureViews[i] = wgpu.TextureCreateView(shadowDepthTexture, &wgpu.TextureViewDescriptor{
+			dimension = ._2D,
+			format = DEPTH_FORMAT,
+			baseArrayLayer = u32(i),
+			arrayLayerCount = 1,
+			baseMipLevel = 0,
+			mipLevelCount = 1,
+			aspect = .DepthOnly,
+		})
+    }
+
+	shadowDepthTextureArrayView = wgpu.TextureCreateView(shadowDepthTexture, &wgpu.TextureViewDescriptor{
+		dimension = ._2DArray,
 		format = DEPTH_FORMAT,
-		dimension = ._2D,
-		sampleCount = 1,
+		baseArrayLayer = 0,
+		arrayLayerCount = CASCADE_COUNT,
+		baseMipLevel = 0,
 		mipLevelCount = 1,
+		aspect = .DepthOnly,
 	})
-	shadowDepthTextureView = wgpu.TextureCreateView(shadowDepthTexture)
+}
+
+calculate_cascade_splits :: proc() -> [CASCADE_COUNT]f32 {
+    near := flyCamera.near
+    far := flyCamera.far
+    lambda : f32 = 0.5  // Adjust this value to control cascade distribution
+    
+    splits : [CASCADE_COUNT]f32
+    for i in 0..<CASCADE_COUNT {
+        p := f32(i + 1) / f32(CASCADE_COUNT)
+        log_split := near * math.pow(far/near, p)
+        uniform_split := near + (far - near) * p
+        splits[i] = lambda * log_split + (1 - lambda) * uniform_split
+    }
+    return splits
 }
 
 resize :: proc "c" () {
@@ -1021,8 +1353,8 @@ resize :: proc "c" () {
 	projectionMatrix = la.matrix4_perspective(
 		2 * math.PI / 5,
 		f32(state.config.width) / f32(state.config.height),
-		1.0,
-		100.0,
+		flyCamera.near,
+		flyCamera.far,
 	)
 
 	wgpu.SurfaceConfigure(state.surface, &state.config)
@@ -1072,69 +1404,83 @@ frame :: proc "c" (dt: f32) {
 	defer wgpu.TextureViewRelease(frame)
 
 	//Transform objects
-	now := f32(time.duration_seconds(time.since(start_time)))
-	gameObject1.rotation = la.quaternion_from_euler_angles_f32(
-		0,
-		math.sin(now) * 1.2,
-		0,
-		la.Euler_Angle_Order.XYZ,
-	)
-	gameObject2.rotation = la.quaternion_from_euler_angles_f32(
-		math.sin(now) * 1.2,
-		math.cos(now) * 1,
-		0,
-		la.Euler_Angle_Order.XYZ,
-	)
+	//now := f32(time.duration_seconds(time.since(start_time)))
+	// gameObject1.rotation = la.quaternion_from_euler_angles_f32(
+	// 	0,
+	// 	math.sin(now) * 1.2,
+	// 	0,
+	// 	la.Euler_Angle_Order.XYZ,
+	// )
+	// gameObject2.rotation = la.quaternion_from_euler_angles_f32(
+	// 	0,
+	// 	now,
+	// 	0,
+	// 	la.Euler_Angle_Order.XYZ,
+	// )
 
 	//Setup matrices and write positions to uniform buffers
-	viewMatrix = la.MATRIX4F32_IDENTITY
-	viewMatrix *= la.matrix4_rotate(flyCamera.pitch, la.VECTOR3F32_X_AXIS)
-	viewMatrix *= la.matrix4_rotate(flyCamera.yaw, la.VECTOR3F32_Y_AXIS)
-	viewMatrix *= la.matrix4_translate(flyCamera.camera.position)
+	forward := la.normalize(flyCamera.rotation)
+	viewMatrix = la.matrix4_look_at_f32(flyCamera.position, flyCamera.position + forward, la.VECTOR3F32_Y_AXIS)
 
 	transform := OPEN_GL_TO_WGPU_MATRIX * projectionMatrix * viewMatrix
 	cameraData := CameraUniform {
 		view_proj = transform,
 		position = la.Vector4f32 {flyCamera.position.x, flyCamera.position.y, flyCamera.position.z, 1.0},
+		forward = la.Vector4f32 {forward.x, forward.y, forward.z, 0.0},
 	}
+	update_cascade_data()
 
 	wgpu.QueueWriteBuffer(state.queue, state.camera_uniform_buffer, 0, &cameraData, size_of(CameraUniform))
 	wgpu.QueueWriteBuffer(state.queue, state.light_uniform_buffer, 0, &directional_light, size_of(LightUniform))
 	for &object in objects {
-		modelMatrix = la.matrix4_from_trs_f32(
+		model_matrix := la.matrix4_from_trs_f32(
 			object.translation,
 			object.rotation,
 			object.scale,
 		)
-		wgpu.QueueWriteBuffer(state.queue, object.uniform_buffer, 0, &modelMatrix, size_of(transform))
+		normal_matrix := la.inverse_transpose(model_matrix)
+		model_matrices := ModelMatrices {
+			model = model_matrix,
+			normal = normal_matrix,
+		}
+		wgpu.QueueWriteBuffer(state.queue, object.uniform_buffer, 0, &model_matrices, size_of(ModelMatrices))
 	}
 
-	//Shadow render pass
-	shadow_command_encoder := wgpu.DeviceCreateCommandEncoder(state.device, nil)
-	defer wgpu.CommandEncoderRelease(shadow_command_encoder)
+	// Shadow render pass per cascade layer.
+	shadow_light := directional_light
+	for cascade_index in 0..<CASCADE_COUNT {
+		shadow_light.cascades[0] = directional_light.cascades[cascade_index]
+		wgpu.QueueWriteBuffer(state.queue, state.light_uniform_buffer, 0, &shadow_light, size_of(LightUniform))
 
-	shadow_render_pass_encoder := wgpu.CommandEncoderBeginRenderPass(
-		shadow_command_encoder,
-		&wgpu.RenderPassDescriptor{
-			colorAttachmentCount = 0,
-			depthStencilAttachment = &wgpu.RenderPassDepthStencilAttachment{
-				view = shadowDepthTextureView,
-				depthClearValue = 1.0,
-				depthLoadOp = .Clear,
-				depthStoreOp = .Store,
+		shadow_command_encoder := wgpu.DeviceCreateCommandEncoder(state.device, nil)
+		shadow_render_pass_encoder := wgpu.CommandEncoderBeginRenderPass(
+			shadow_command_encoder,
+			&wgpu.RenderPassDescriptor{
+				colorAttachmentCount = 0,
+				depthStencilAttachment = &wgpu.RenderPassDepthStencilAttachment{
+					view = shadowDepthTextureViews[cascade_index],
+					depthClearValue = 1.0,
+					depthLoadOp = .Clear,
+					depthStoreOp = .Store,
+				},
 			},
-		},
-	)
-	wgpu.RenderPassEncoderSetPipeline(shadow_render_pass_encoder, pipelines["shadow"])
-	// RENDER EVERYTHING IN SHADOW PASS
-	wgpu.RenderPassEncoderSetBindGroup(shadow_render_pass_encoder, 0, state.scene_bind_group)
-	render_objects(shadow_render_pass_encoder)
+		)
 
-	wgpu.RenderPassEncoderEnd(shadow_render_pass_encoder)
-	wgpu.RenderPassEncoderRelease(shadow_render_pass_encoder)
-	shadow_command_buffer := wgpu.CommandEncoderFinish(shadow_command_encoder, nil)
-	defer wgpu.CommandBufferRelease(shadow_command_buffer)
-	wgpu.QueueSubmit(state.queue, {shadow_command_buffer})
+		wgpu.RenderPassEncoderSetPipeline(shadow_render_pass_encoder, pipelines["shadow"])
+		wgpu.RenderPassEncoderSetBindGroup(shadow_render_pass_encoder, 0, state.scene_bind_group)
+		render_shadow_objects(shadow_render_pass_encoder)
+
+		wgpu.RenderPassEncoderEnd(shadow_render_pass_encoder)
+		wgpu.RenderPassEncoderRelease(shadow_render_pass_encoder)
+
+		shadow_command_buffer := wgpu.CommandEncoderFinish(shadow_command_encoder, nil)
+		wgpu.CommandEncoderRelease(shadow_command_encoder)
+		wgpu.QueueSubmit(state.queue, {shadow_command_buffer})
+		wgpu.CommandBufferRelease(shadow_command_buffer)
+	}
+
+	// Restore the full cascade data for the lighting pass.
+	wgpu.QueueWriteBuffer(state.queue, state.light_uniform_buffer, 0, &directional_light, size_of(LightUniform))
 
 
 	//Render pass
@@ -1168,7 +1514,6 @@ frame :: proc "c" (dt: f32) {
 
 	wgpu.RenderPassEncoderSetPipeline(render_pass_encoder, pipelines["test"])
 	wgpu.RenderPassEncoderSetBindGroup(render_pass_encoder, 0, state.scene_bind_group)
-	wgpu.RenderPassEncoderSetBindGroup(render_pass_encoder, 2, materials["sample.png"].bind_group)
 	wgpu.RenderPassEncoderSetBindGroup(render_pass_encoder, 3, shadowSamplerBindGroup)
 
 	render_objects(render_pass_encoder)
@@ -1196,6 +1541,8 @@ render_objects :: proc(render_pass_encoder : wgpu.RenderPassEncoder) {
 		mesh := &meshes[object.mesh]
 
 		for &primitive in mesh.primitives {
+			material := materials[primitive.materialResourceName]
+			wgpu.RenderPassEncoderSetBindGroup(render_pass_encoder, 2, material.bind_group)
 			if (primitive.vertices != 0 && primitive.vertexBuffer != nil){
 				wgpu.RenderPassEncoderSetVertexBuffer(
 					render_pass_encoder,
@@ -1237,19 +1584,66 @@ render_objects :: proc(render_pass_encoder : wgpu.RenderPassEncoder) {
 	}
 }
 
+render_shadow_objects :: proc(render_pass_encoder : wgpu.RenderPassEncoder) {
+	for &object, object_index in objects {
+		wgpu.RenderPassEncoderSetBindGroup(render_pass_encoder, 1, object.uniform_bind_group)
+
+		mesh := &meshes[object.mesh]
+		for &primitive in mesh.primitives {
+			if (primitive.vertices != 0 && primitive.vertexBuffer != nil) {
+				wgpu.RenderPassEncoderSetVertexBuffer(
+					render_pass_encoder,
+					0,
+					primitive.vertexBuffer,
+					0,
+					u64(primitive.vertices * size_of(Vertex)),
+				)
+			}
+
+			if (primitive.indices != 0 && primitive.indexBuffer != nil) {
+				wgpu.RenderPassEncoderSetIndexBuffer(
+					render_pass_encoder,
+					primitive.indexBuffer,
+					.Uint32,
+					0,
+					u64(primitive.indices * size_of(u32)),
+				)
+			}
+
+			if primitive.indices != 0 && primitive.indexBuffer != nil {
+				wgpu.RenderPassEncoderDrawIndexed(
+					render_pass_encoder,
+					u32(primitive.indices),
+					instanceCount = 1,
+					firstIndex = 0,
+					baseVertex = 0,
+					firstInstance = u32(object_index),
+				)
+			} else {
+				wgpu.RenderPassEncoderDraw(
+					render_pass_encoder,
+					vertexCount = u32(primitive.vertices),
+					instanceCount = 1,
+					firstVertex = 0,
+					firstInstance = u32(object_index),
+				)
+			}
+		}
+	}
+}
+
 finish :: proc() {
 	mu_shutdown()
 
-	// wgpu.SamplerRelease(uvTextureSampler)
-	// wgpu.TextureViewRelease(uvTextureView)
-	// wgpu.TextureRelease(uvTexture)
-	for _, &material in materials {
-		wgpu.SamplerRelease(material.base_colour_sampler)
+	wgpu.SamplerRelease(default_sampler)
+	for material_key, &material in materials {
 		wgpu.TextureViewRelease(material.base_colour_texture_view)
 		wgpu.TextureRelease(material.base_colour_texture)
 		wgpu.BindGroupRelease(material.bind_group)
+		delete(material_key)
 	}
 	delete(materials)
+	whiteTexture->destroy()
 	cleanup_objects()
 	cleanup_meshes()
 	cleanup_pipelines()
@@ -1267,6 +1661,11 @@ finish :: proc() {
 	wgpu.BindGroupLayoutRelease(samplerBindGroupLayout)
 	wgpu.BindGroupRelease(shadowSamplerBindGroup)
 	wgpu.BindGroupLayoutRelease(shadowSamplerBindGroupLayout)
+	wgpu.TextureViewRelease(shadowDepthTextureArrayView)
+	for i in 0..<CASCADE_COUNT {
+		wgpu.TextureViewRelease(shadowDepthTextureViews[i])
+	}
+	wgpu.TextureRelease(shadowDepthTexture)
 
 	wgpu.QueueRelease(state.queue)
 	wgpu.DeviceRelease(state.device)
@@ -1285,6 +1684,7 @@ cleanup_meshes :: proc() {
 	for key in meshes {
 		mesh := &meshes[key]
 		for &primitive in mesh.primitives {
+			delete(primitive.materialResourceName)
 			if primitive.vertexBuffer != nil {
 				wgpu.BufferRelease(primitive.vertexBuffer)
 			}

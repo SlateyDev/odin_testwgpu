@@ -1,16 +1,30 @@
 #+feature dynamic-literals
 package test
 
+foreign import customImports "customImports"
+
 import "core:sys/wasm/js"
 import "core:unicode"
 import "core:unicode/utf8"
 
 import "vendor:wgpu"
 import mu "vendor:microui"
+import "core:image"
+import "core:fmt"
+// import "vendor:cgltf"
 
 OS :: struct {
 	initialized: bool,
     clipboard: [dynamic]byte,
+	keyStates: map[u32]bool,
+}
+
+@(private="file")
+KEY_CODE_MAP := map[string]u32{
+    "KeyW" = 87,
+    "KeyA" = 65,
+    "KeyS" = 83,
+    "KeyD" = 68,
 }
 
 os : OS
@@ -19,6 +33,10 @@ mu_state := struct {
 }{}
 
 os_init :: proc() {
+	context = state.ctx
+
+	os.keyStates = make(map[u32]bool, context.allocator)
+
 	assert(js.add_window_event_listener(.Key_Down, nil, key_down_callback))
 	assert(js.add_window_event_listener(.Key_Up, nil, key_up_callback))
 	assert(js.add_window_event_listener(.Mouse_Down, nil, mouse_down_callback))
@@ -41,7 +59,16 @@ step :: proc(dt: f32) -> bool {
 		return true
 	}
     
+	if captured_mouse {
+		forward := (os.keyStates[KEY_CODE_MAP["KeyW"]] ? 1 : 0) + (os.keyStates[KEY_CODE_MAP["KeyS"]] ? -1 : 0)
+		right := (os.keyStates[KEY_CODE_MAP["KeyD"]] ? 1 : 0) + (os.keyStates[KEY_CODE_MAP["KeyA"]] ? -1 : 0)
+		camera_move_forward(&flyCamera, f32(forward) * 10 * dt)
+		camera_move_right(&flyCamera, f32(right) * 10 * dt)
+	}
+
 	frame(dt)
+
+	free_all(context.temp_allocator)
 	return true
 }
 
@@ -87,7 +114,11 @@ os_get_clipboard :: proc(_: rawptr) -> (string, bool) {
 }
 
 @(private="file", fini)
-os_fini :: proc() {
+os_fini :: proc "contextless" () {
+	context = state.ctx
+
+	delete(os.keyStates)
+
 	js.remove_window_event_listener(.Key_Down, nil, key_down_callback)
 	js.remove_window_event_listener(.Key_Up, nil, key_up_callback)
 	js.remove_window_event_listener(.Mouse_Down, nil, mouse_down_callback)
@@ -101,7 +132,6 @@ os_fini :: proc() {
 
 @(private="file")
 size_callback :: proc(e: js.Event) {
-    context = state.ctx
 	resize()
 }
 
@@ -134,6 +164,10 @@ key_down_callback :: proc(e: js.Event) {
 
 	js.event_prevent_default()
 
+	if k, ok := KEY_CODE_MAP[e.data.key.code]; ok {
+		os.keyStates[k] = true
+	}
+
 	if k, ok := KEY_MAP[e.data.key.code]; ok {
 		mu.input_key_down(&mu_ctx, k)
 	}
@@ -152,12 +186,18 @@ key_down_callback :: proc(e: js.Event) {
 key_up_callback :: proc(e: js.Event) {
 	context = state.ctx
 
+	if k, ok := KEY_CODE_MAP[e.data.key.code]; ok {
+		os.keyStates[k] = false
+	}
+
 	if k, ok := KEY_MAP[e.data.key.code]; ok {
 		mu.input_key_up(&mu_ctx, k)
 	}
 
 	js.event_prevent_default()
 }
+
+captured_mouse := false
 
 @(private="file")
 mouse_down_callback :: proc(e: js.Event) {
@@ -167,6 +207,10 @@ mouse_down_callback :: proc(e: js.Event) {
 	case 0: mu.input_mouse_down(&mu_ctx, mu_state.cursor.x, mu_state.cursor.y, .LEFT)
 	case 1: mu.input_mouse_down(&mu_ctx, mu_state.cursor.x, mu_state.cursor.y, .MIDDLE)
 	case 2: mu.input_mouse_down(&mu_ctx, mu_state.cursor.x, mu_state.cursor.y, .RIGHT)
+		if !captured_mouse {
+			web_request_pointer_lock("wgpu-canvas", 11)
+			captured_mouse = true
+		}
 	}
 
 	js.event_prevent_default()
@@ -180,6 +224,10 @@ mouse_up_callback :: proc(e: js.Event) {
 	case 0: mu.input_mouse_up(&mu_ctx, mu_state.cursor.x, mu_state.cursor.y, .LEFT)
 	case 1: mu.input_mouse_up(&mu_ctx, mu_state.cursor.x, mu_state.cursor.y, .MIDDLE)
 	case 2: mu.input_mouse_up(&mu_ctx, mu_state.cursor.x, mu_state.cursor.y, .RIGHT)
+		if captured_mouse {
+			web_release_pointer_lock()
+			captured_mouse = false
+		}
 	}
 
 	js.event_prevent_default()
@@ -190,10 +238,48 @@ mouse_move_callback :: proc(e: js.Event) {
 	context = state.ctx
 	mu_state.cursor = {i32(e.data.mouse.offset.x), i32(e.data.mouse.offset.y)}
 	mu.input_mouse_move(&mu_ctx, mu_state.cursor.x, mu_state.cursor.y)
+
+	if captured_mouse {
+		camera_adjust_pitch(&flyCamera, f32(e.data.mouse.movement.y))
+		camera_adjust_yaw(&flyCamera, f32(e.data.mouse.movement.x))
+	}
 }
 
 @(private="file")
 scroll_callback :: proc(e: js.Event) {
 	context = state.ctx
 	mu.input_scroll(&mu_ctx, i32(e.data.wheel.delta.x), i32(e.data.wheel.delta.y))
+}
+
+COMPTIME_ASSETS := #load_directory("./assets")
+
+os_load_image :: proc(path: string) -> (output: ^image.Image, err: image.Error) {
+	for file in COMPTIME_ASSETS {
+		if file.name == path {
+			output, err = image.load_from_bytes(file.data)
+			return
+		}
+	}
+
+	fmt.eprintfln("ERROR: Asset not found [%s]", path)
+
+	return nil, .Unable_To_Read_File
+}
+
+
+// os_load_gltf :: proc(path: cstring) -> (output: Mesh) {
+// 	for file in COMPTIME_ASSETS {
+// 		if file.name == string(path) {
+// 			return load_gltf_from_bytes(file.data)
+// 		}
+// 	}
+
+// 	fmt.eprintfln("ERROR: Asset not found [%s]", path)
+// 	return
+// }
+
+@(default_calling_convention="contextless")
+foreign customImports {
+	web_request_pointer_lock           :: proc(canvasIdPtr: string, canvasIdLen: u32) ---
+	web_release_pointer_lock           :: proc() ---
 }

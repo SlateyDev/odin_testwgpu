@@ -1,10 +1,16 @@
 struct Camera {
     view_proj: mat4x4<f32>,
     pos: vec4<f32>,
+    forward: vec4<f32>,
+}
+
+struct CascadeInfo {
+    view_proj: mat4x4<f32>,
+    split_depth: f32,
 }
 
 struct Light {
-    view_proj: mat4x4<f32>,
+    cascades: array<CascadeInfo, 4>,
     pos: vec4<f32>,
 }
 
@@ -26,6 +32,6 @@ fn vs_main(
     model: VertexInput,
 ) -> VertexOutput {
     var out: VertexOutput;
-    out.position = light.view_proj * model_matrix * vec4<f32>(model.pos, 1.0);
+    out.position = light.cascades[0].view_proj * model_matrix * vec4<f32>(model.pos, 1.0);
     return out;
 }

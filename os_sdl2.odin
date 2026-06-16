@@ -9,6 +9,8 @@ import mu "vendor:microui"
 import "vendor:sdl2"
 import "vendor:wgpu"
 import "vendor:wgpu/sdl2glue"
+import "core:image"
+// import "vendor:cgltf"
 
 OS :: struct {
     window: ^sdl2.Window,
@@ -129,6 +131,8 @@ os_run :: proc() {
 		}
 
 		frame(dt)
+
+		free_all(context.temp_allocator)
 	}
 
 	sdl2.DestroyWindow(os.window)
@@ -166,3 +170,20 @@ os_get_clipboard :: proc(user_data: rawptr) -> (text: string, ok: bool) {
 	}
 	return
 }
+
+os_load_image :: proc(path: string) -> (output: ^image.Image, err: image.Error) {
+	filename := fmt.tprintf("./assets/%s", path)
+	output, err = image.load_from_file(string(filename))
+	return
+}
+
+// os_load_gltf :: proc(path: cstring) -> (output: Mesh) {
+// 	for file in COMPTIME_ASSETS {
+// 		if file.name == string(path) {
+// 			return load_gltf_from_bytes(file.data)
+// 		}
+// 	}
+
+// 	fmt.eprintfln("ERROR: Asset not found [%s]", path)
+// 	return
+// }
