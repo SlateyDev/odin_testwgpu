@@ -67,7 +67,7 @@ MeshInstance :: struct {
 	mesh: string,
 }
 
-ModelMatrices :: struct {
+ModelMatrices :: struct #align(16) {
 	model: la.Matrix4f32,
 	normal: la.Matrix4f32,
 }
