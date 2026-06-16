@@ -172,9 +172,8 @@ os_get_clipboard :: proc(user_data: rawptr) -> (text: string, ok: bool) {
 }
 
 os_load_image :: proc(path: string) -> (output: ^image.Image, err: image.Error) {
-	filename := fmt.aprintf("./assets/%s", path)
+	filename := fmt.tprintf("./assets/%s", path)
 	output, err = image.load_from_file(string(filename))
-	delete(filename)
 	return
 }
 

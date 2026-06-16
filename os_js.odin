@@ -208,7 +208,6 @@ COMPTIME_ASSETS := #load_directory("./assets")
 
 os_load_image :: proc(path: string) -> (output: ^image.Image, err: image.Error) {
 	for file in COMPTIME_ASSETS {
-		fmt.eprintfln("CHECK: Filename [%s] = [%s]", path, file.name)
 		if file.name == path {
 			output, err = image.load_from_bytes(file.data)
 			return
