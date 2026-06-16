@@ -75,16 +75,15 @@ ModelMatrices :: struct {
 CASCADE_COUNT :: 4
 SHADOW_MAP_SIZE :: u32(2048)
 
-LightUniform :: struct {
-	cascades: [CASCADE_COUNT]struct {
+LightUniform :: struct #align(16) {
+	cascades: [CASCADE_COUNT]struct #align(16) {
 		view_proj: la.Matrix4x4f32,
-		split_depth: f32,
-		padding: [3]f32,
+		split_depth: la.Vector4f32,
 	},
 	position: la.Vector4f32,
 }
 
-CameraUniform :: struct {
+CameraUniform :: struct #align(16) {
 	view_proj: la.Matrix4x4f32,
 	position: la.Vector4f32,
 	forward: la.Vector4f32,

@@ -7,7 +7,6 @@ struct Camera {
 struct CascadeInfo {
     view_proj: mat4x4<f32>,
     split_depth: f32,
-    _pad: vec3<f32>,
 }
 
 struct Light {
