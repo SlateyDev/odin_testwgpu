@@ -223,20 +223,11 @@ gameObject1 := MeshInstance {
 	mesh = "cube",
 }
 
-when ODIN_OS != .JS {
-	gameObject2 := MeshInstance {
-		translation = {2, -2, 0},
-		rotation    = la.quaternion_from_euler_angles_f32(0, 0, 0, la.Euler_Angle_Order.ZYX),
-		scale       = {100, 100, 100},
-		mesh = "duck",
-	}
-} else {
-	gameObject2 := MeshInstance {
-		translation = {2, -2, 0},
-		rotation    = la.quaternion_from_euler_angles_f32(0, 0, 0, la.Euler_Angle_Order.ZYX),
-		scale       = {1, 1, 1},
-		mesh = "cube",
-	}	
+gameObject2 := MeshInstance {
+	translation = {2, -2, 0},
+	rotation    = la.quaternion_from_euler_angles_f32(0, 0, 0, la.Euler_Angle_Order.ZYX),
+	scale       = {100, 100, 100},
+	mesh = "duck",
 }
 
 gameObject3 := MeshInstance {
@@ -576,9 +567,7 @@ game :: proc() {
 		meshes["plane"] = Mesh{primitives = plane_primitives}
 
 		//currently only supporting - position: vec3, texcoord: vec2, color: vec4 (optional), with an index buffer
-		when ODIN_OS != .JS {
-			meshes["duck"] = load_gltf("./assets/BoomBox.gltf")
-		}
+		meshes["duck"] = load_gltf("BoomBox.gltf")
 
 		state.light_uniform_buffer = wgpu.DeviceCreateBuffer(
 			state.device,
@@ -1093,6 +1082,9 @@ load_gltf_nodes :: proc(loaded_primitives: ^[dynamic]Primitive, nodes: []^cgltf.
 
 load_gltf :: proc(path: cstring) -> (output: Mesh) {
 	cgltf_options : cgltf.options
+	cgltf_options.file.read = os_read_gltf
+	cgltf_options.file.release = os_release_gltf
+
 	data, result := cgltf.parse_file(cgltf_options, path)
 	if result != .success {
 		return
@@ -1404,19 +1396,19 @@ frame :: proc "c" (dt: f32) {
 	defer wgpu.TextureViewRelease(frame)
 
 	//Transform objects
-	//now := f32(time.duration_seconds(time.since(start_time)))
-	// gameObject1.rotation = la.quaternion_from_euler_angles_f32(
-	// 	0,
-	// 	math.sin(now) * 1.2,
-	// 	0,
-	// 	la.Euler_Angle_Order.XYZ,
-	// )
-	// gameObject2.rotation = la.quaternion_from_euler_angles_f32(
-	// 	0,
-	// 	now,
-	// 	0,
-	// 	la.Euler_Angle_Order.XYZ,
-	// )
+	now := f32(time.duration_seconds(time.since(start_time)))
+	gameObject1.rotation = la.quaternion_from_euler_angles_f32(
+		0,
+		math.sin(now) * 1.2,
+		0,
+		la.Euler_Angle_Order.XYZ,
+	)
+	gameObject2.rotation = la.quaternion_from_euler_angles_f32(
+		0,
+		now,
+		0,
+		la.Euler_Angle_Order.XYZ,
+	)
 
 	//Setup matrices and write positions to uniform buffers
 	forward := la.normalize(flyCamera.rotation)

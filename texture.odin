@@ -60,22 +60,22 @@ new_EngineTexture :: proc() -> ^EngineTexture {
         return engineTexture.view
     }
 
+    free_EngineTexture :: proc(engineTexture: ^EngineTexture) {
+        if engineTexture.texture != nil {
+            wgpu.TextureRelease(engineTexture.texture)
+        }
+        engineTexture.texture = nil
+        if engineTexture.view != nil {
+            wgpu.TextureViewRelease(engineTexture.view)
+        }
+        engineTexture.view = nil
+        free(engineTexture)
+    }
+
     return new_clone(EngineTexture{
         from_colour_f32 = from_colour_f32,
         from_colour_u8 = from_colour_u8,
         create_view = create_view,
         destroy = free_EngineTexture,
     })
-}
-
-free_EngineTexture :: proc(engineTexture: ^EngineTexture) {
-    if engineTexture.texture != nil {
-        wgpu.TextureRelease(engineTexture.texture)
-    }
-    engineTexture.texture = nil
-    if engineTexture.view != nil {
-        wgpu.TextureViewRelease(engineTexture.view)
-    }
-    engineTexture.view = nil
-    free(engineTexture)
 }

@@ -11,7 +11,7 @@ import "vendor:wgpu"
 import mu "vendor:microui"
 import "core:image"
 import "core:fmt"
-// import "vendor:cgltf"
+import "vendor:cgltf"
 
 OS :: struct {
 	initialized: bool,
@@ -266,17 +266,23 @@ os_load_image :: proc(path: string) -> (output: ^image.Image, err: image.Error) 
 	return nil, .Unable_To_Read_File
 }
 
+os_read_gltf :: proc "c" (memory_options: ^cgltf.memory_options, file_options: ^cgltf.file_options, path: cstring, size: ^uint, data: ^rawptr) -> (result: cgltf.result) {
+	context = state.ctx
 
-// os_load_gltf :: proc(path: cstring) -> (output: Mesh) {
-// 	for file in COMPTIME_ASSETS {
-// 		if file.name == string(path) {
-// 			return load_gltf_from_bytes(file.data)
-// 		}
-// 	}
+	for file in COMPTIME_ASSETS {
+		if file.name == string(path) {
+			fmt.println("Loading gltf file:", file.name)
+			data^ = raw_data(file.data)
+			size^ = uint(len(file.data))
+			return .success
+		}
+	}
 
-// 	fmt.eprintfln("ERROR: Asset not found [%s]", path)
-// 	return
-// }
+	return .file_not_found
+}
+
+os_release_gltf :: proc "c" (memory_options: ^cgltf.memory_options, file_options: ^cgltf.file_options, data: rawptr) {
+}
 
 @(default_calling_convention="contextless")
 foreign customImports {

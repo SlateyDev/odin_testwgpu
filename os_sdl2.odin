@@ -4,13 +4,14 @@ package test
 import "core:c"
 import "core:fmt"
 import "core:strings"
+import os2 "core:os"
 
 import mu "vendor:microui"
 import "vendor:sdl2"
 import "vendor:wgpu"
 import "vendor:wgpu/sdl2glue"
 import "core:image"
-// import "vendor:cgltf"
+import "vendor:cgltf"
 
 OS :: struct {
     window: ^sdl2.Window,
@@ -177,13 +178,20 @@ os_load_image :: proc(path: string) -> (output: ^image.Image, err: image.Error) 
 	return
 }
 
-// os_load_gltf :: proc(path: cstring) -> (output: Mesh) {
-// 	for file in COMPTIME_ASSETS {
-// 		if file.name == string(path) {
-// 			return load_gltf_from_bytes(file.data)
-// 		}
-// 	}
+os_read_gltf :: proc "c" (memory_options: ^cgltf.memory_options, file_options: ^cgltf.file_options, path: cstring, size: ^uint, data: ^rawptr) -> (result: cgltf.result) {
+	context = state.ctx
 
-// 	fmt.eprintfln("ERROR: Asset not found [%s]", path)
-// 	return
-// }
+	filename := fmt.tprintf("./assets/%s", path)
+	fmt.println("Loading gltf file:", filename)
+	file_bytes, _ := os2.read_entire_file_from_path(filename, allocator = context.allocator)
+
+	data^ = raw_data(file_bytes)
+	size^ = uint(len(file_bytes))
+
+	return .success
+}
+
+os_release_gltf :: proc "c" (memory_options: ^cgltf.memory_options, file_options: ^cgltf.file_options, data: rawptr) {
+	context = state.ctx
+	free(data)
+}
