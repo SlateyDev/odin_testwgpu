@@ -116,8 +116,8 @@ list as I think of new things that would be interesting to work on.
 - [ ] MacOS build
 - [ ] Android build
 - [ ] iOS build
-- [ ] glTF support for web export
-- [ ] Other asset support for web export
+- [x] glTF support for web export
+- [x] Other asset support for web export
 - [ ] Compute Shaders
 
 ## Project Structure

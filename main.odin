@@ -534,12 +534,12 @@ game :: proc() {
 			&gameObject3,
 		)
 
-		shaders["testShader"] = wgpu.DeviceCreateShaderModule(
+		shaders["forwardRenderer"] = wgpu.DeviceCreateShaderModule(
 			state.device,
 			&{
 				nextInChain = &wgpu.ShaderSourceWGSL {
 					sType = .ShaderSourceWGSL,
-					code = string(#load("shaders/shader.wgsl")),
+					code = string(#load("shaders/forward_renderer.wgsl")),
 				},
 			},
 		)
@@ -757,7 +757,7 @@ game :: proc() {
 			},
 		)
 
-		pipelineLayouts["default"] = wgpu.DeviceCreatePipelineLayout(
+		pipelineLayouts["forwardRenderer"] = wgpu.DeviceCreatePipelineLayout(
 			state.device,
 			&{
 				bindGroupLayoutCount = 4,
@@ -774,13 +774,13 @@ game :: proc() {
 
 		create_depth_texture()
 
-		pipelines["test"] = wgpu.DeviceCreateRenderPipeline(
+		pipelines["forwardRenderer"] = wgpu.DeviceCreateRenderPipeline(
 			state.device,
 			&wgpu.RenderPipelineDescriptor{
-				label = "Test Pipeline",
-				layout = pipelineLayouts["default"],
+				label = "Forward Render Pipeline",
+				layout = pipelineLayouts["forwardRenderer"],
 				vertex = {
-					module = shaders["testShader"],
+					module = shaders["forwardRenderer"],
 					entryPoint = "vs_main",
 					bufferCount = 1,
 					buffers = raw_data(
@@ -813,7 +813,7 @@ game :: proc() {
 					),
 				},
 				fragment = &{
-					module = shaders["testShader"],
+					module = shaders["forwardRenderer"],
 					entryPoint = "fs_main",
 					targetCount = 1,
 					targets = &wgpu.ColorTargetState {
@@ -857,7 +857,7 @@ game :: proc() {
 			},
 		)
 
-		pipelineLayouts["shadow"] = wgpu.DeviceCreatePipelineLayout(
+		pipelineLayouts["shadowCaster"] = wgpu.DeviceCreatePipelineLayout(
 			state.device,
 			&{
 				bindGroupLayoutCount = 2,
@@ -870,11 +870,11 @@ game :: proc() {
 			},
 		)
 
-		pipelines["shadow"] = wgpu.DeviceCreateRenderPipeline(
+		pipelines["shadowCaster"] = wgpu.DeviceCreateRenderPipeline(
 			state.device,
 			&wgpu.RenderPipelineDescriptor{
 				label = "Shadow Pipeline",
-				layout = pipelineLayouts["shadow"],
+				layout = pipelineLayouts["shadowCaster"],
 				vertex = {
 					module = shaders["shadowCaster"],
 					entryPoint = "vs_main",
@@ -1458,7 +1458,7 @@ frame :: proc "c" (dt: f32) {
 			},
 		)
 
-		wgpu.RenderPassEncoderSetPipeline(shadow_render_pass_encoder, pipelines["shadow"])
+		wgpu.RenderPassEncoderSetPipeline(shadow_render_pass_encoder, pipelines["shadowCaster"])
 		wgpu.RenderPassEncoderSetBindGroup(shadow_render_pass_encoder, 0, state.scene_bind_group)
 		render_shadow_objects(shadow_render_pass_encoder)
 
@@ -1504,7 +1504,7 @@ frame :: proc "c" (dt: f32) {
 		},
 	)
 
-	wgpu.RenderPassEncoderSetPipeline(render_pass_encoder, pipelines["test"])
+	wgpu.RenderPassEncoderSetPipeline(render_pass_encoder, pipelines["forwardRenderer"])
 	wgpu.RenderPassEncoderSetBindGroup(render_pass_encoder, 0, state.scene_bind_group)
 	wgpu.RenderPassEncoderSetBindGroup(render_pass_encoder, 3, shadowSamplerBindGroup)
 
